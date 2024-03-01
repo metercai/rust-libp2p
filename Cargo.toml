@@ -30,6 +30,7 @@ members = [
     "misc/quickcheck-ext",
     "misc/rw-stream-sink",
     "misc/server",
+    "misc/p2pserver",
     "misc/webrtc-utils",
     "muxers/mplex",
     "muxers/test-harness",
