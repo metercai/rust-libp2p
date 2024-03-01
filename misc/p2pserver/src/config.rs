@@ -8,6 +8,7 @@ use std::path::Path;
 pub(crate) struct Config {
     pub(crate) identity: Identity,
     pub(crate) addresses: Addresses,
+    pub(crate) pubsub_topics: Vec<String>,
 }
 
 impl Config {

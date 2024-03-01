@@ -69,23 +69,41 @@ async fn main() -> Result<(), Box<dyn Error>> {
         keypair
     };
 
-    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_keypair)
-        .with_tokio()
-        .with_tcp(
-            tcp::Config::default().port_reuse(true).nodelay(true),
-            noise::Config::new,
-            yamux::Config::default,
-        )?
-        .with_quic()
-        .with_dns()?
-        .with_websocket(noise::Config::new, yamux::Config::default)
-        .await?
-        .with_relay_client(noise::Config::new, yamux::Config::default).expect("relay client creation failed")
-        .with_bandwidth_metrics(&mut metric_registry)
-        .with_behaviour(|key,relay_client| {
-            behaviour::Behaviour::new(key.public(), relay_client, opt.enable_real_ip)
-        })?
-        .build();
+    let mut swarm = match opt.enable_real_ip {
+        true => libp2p::SwarmBuilder::with_existing_identity(local_keypair)
+            .with_tokio()
+            .with_tcp(
+                tcp::Config::default().port_reuse(true).nodelay(true),
+                noise::Config::new,
+                yamux::Config::default,
+            )?
+            .with_quic()
+            .with_dns()?
+            .with_websocket(noise::Config::new, yamux::Config::default)
+            .await?
+            .with_bandwidth_metrics(&mut metric_registry)
+            .with_behaviour(|key| {
+                behaviour::Behaviour::new(key.clone(), None, config.pubsub_topics.clone())
+            })?
+            .build(),
+        false => libp2p::SwarmBuilder::with_existing_identity(local_keypair)
+            .with_tokio()
+            .with_tcp(
+                tcp::Config::default().port_reuse(true).nodelay(true),
+                noise::Config::new,
+                yamux::Config::default,
+            )?
+            .with_quic()
+            .with_dns()?
+            .with_websocket(noise::Config::new, yamux::Config::default)
+            .await?
+            .with_relay_client(noise::Config::new, yamux::Config::default).expect("relay client creation failed")
+            .with_bandwidth_metrics(&mut metric_registry)
+            .with_behaviour(|key, relay_client| {
+                behaviour::Behaviour::new(key.clone(), Some(relay_client), config.pubsub_topics.clone())
+            })?
+            .build(),
+    };
 
     if config.addresses.swarm.is_empty() {
         tracing::warn!("No listen addresses configured");
