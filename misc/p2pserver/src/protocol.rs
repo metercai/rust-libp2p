@@ -9,7 +9,6 @@ use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, StreamProtocol};
 use libp2p::{identity, Multiaddr, PeerId};
 use std::{
-    io,
     str::FromStr,
     net::IpAddr,
     time::Duration,
@@ -18,8 +17,6 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use either::Either;
-use void::Void;
 
 
 const BOOTNODES: [&str; 4] = [
@@ -31,7 +28,6 @@ const BOOTNODES: [&str; 4] = [
 
 const IPFS_PROTO_NAME: StreamProtocol = StreamProtocol::new("/ipfs/kad/1.0.0");
 
-pub(crate) type BehaviourErr<Void> = Either<Either<Either<Either<io::Error, io::Error>, Void>, Void>, Void>;
 pub(crate) type ResponseType = Result<Vec<u8>, ()>;
 
 #[derive(NetworkBehaviour)]
@@ -72,25 +68,33 @@ impl Behaviour {
             }
             kademlia.bootstrap().unwrap();
             kademlia
+        };
+
+        let enable_outer = match relay_client {
+            Some(ref _val) => false,
+            None => true,
+        };
+        let relay = if enable_outer {
+            Some(relay::Behaviour::new(PeerId::from(pub_key.clone()), Default::default()))
+        } else {
+            None
         }.into();
 
-
-
-        let relay: Toggle<relay::Behaviour> = match relay_client {
-            Some(ref _val) => None,
-            None => Some(relay::Behaviour::new(PeerId::from(pub_key.clone()), Default::default())),
+        let mdns = if enable_outer {
+            None
+        } else {
+            Some(mdns::tokio::Behaviour::new(
+                mdns::Config::default(), pub_key.clone().to_peer_id()).expect("Mdns service initialization failed！"))
         }.into();
-        let mdns: Toggle<mdns::tokio::Behaviour> = match relay_client {
-            Some(ref _val) => Some(mdns::tokio::Behaviour::new(mdns::Config::default(), pub_key.clone().to_peer_id())?),
-            None => None,
-        }.into();
-        let dcutr: Toggle<dcutr::Behaviour> = match relay_client {
-            Some(ref _val) => Some(dcutr::Behaviour::new(pub_key.clone().to_peer_id())),
-            None => None,
+
+        let dcutr = if enable_outer {
+            None
+        } else {
+            Some(dcutr::Behaviour::new(pub_key.clone().to_peer_id()))
         }.into();
 
         Self {
-            relay: relay,
+            relay,
             relay_client: relay_client.into(),
             ping: ping::Behaviour::new(ping::Config::new()),
             identify: identify::Behaviour::new(

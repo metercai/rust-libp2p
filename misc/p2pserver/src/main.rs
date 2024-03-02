@@ -6,7 +6,7 @@ use std::thread;
 use tracing_subscriber::EnvFilter;
 use zeroize::Zeroizing;
 
-mod behaviour;
+mod protocol;
 mod config;
 mod http_service;
 mod service;

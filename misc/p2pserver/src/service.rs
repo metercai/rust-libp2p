@@ -25,7 +25,7 @@ use base64::Engine;
 
 use crate::config::Config;
 use crate::http_service;
-use crate::behaviour::{Behaviour, ResponseType};
+use crate::protocol::*;
 
 
 /// `EventHandler` is the trait that defines how to handle requests / broadcast-messages from remote peers.
@@ -260,7 +260,6 @@ impl<E: EventHandler> Server<E> {
             Command::GetStatus(responder) => responder.send(self.get_status()).unwrap(),
         }
     }
-
     // Process the next event coming from `Swarm`.
     fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         let behaviour_ev = match event {
@@ -268,8 +267,7 @@ impl<E: EventHandler> Server<E> {
 
             SwarmEvent::NewListenAddr { address, .. } => {
                 tracing::info!(%address, "📣 P2P node listening on address");
-                return self.update_listened_addresses();
-            }
+                return self.update_listened_addresses(); },
 
             SwarmEvent::ListenerClosed {
                 reason, addresses, ..
@@ -288,7 +286,7 @@ impl<E: EventHandler> Server<E> {
 
     fn handle_behaviour_event(&mut self, ev: BehaviourEvent) {
         tracing::info!("{:?}", ev);
-        self.metrics.record(&ev);
+        // self.metrics.record(&ev);
         match ev {
             // The remote peer is unreachable, remove it from the DHT.
             BehaviourEvent::Ping(ping::Event {
