@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = config::Config::from_file(opt.config.as_path())?;
 
 
-    let (client, mut server) = service::new(config).unwrap();
+    let (client, mut server) = service::new(config).await?;
     server.set_event_handler(Handler);
 
     // Run the p2p server

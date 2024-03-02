@@ -8,15 +8,16 @@ use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, StreamProtocol};
 use libp2p::{identity, Multiaddr, PeerId};
-use std::io;
-use std::str::FromStr;
-use std::time::Duration;
-use std::hash::DefaultHasher;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::error::Error;
-use std::net::IpAddr;
-use std::collections::HashMap;
+use std::{
+    io,
+    str::FromStr,
+    net::IpAddr,
+    time::Duration,
+    error::Error,
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+};
+
 use either::Either;
 use void::Void;
 
@@ -40,9 +41,9 @@ pub(crate) struct Behaviour {
     ping: ping::Behaviour,
     identify: identify::Behaviour,
     pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    autonat: Toggle<autonat::Behaviour>,
-    mdns: mdns::tokio::Behaviour,
-    dcutr: dcutr::Behaviour,
+    autonat: autonat::Behaviour,
+    mdns: Toggle<mdns::tokio::Behaviour>,
+    dcutr: Toggle<dcutr::Behaviour>,
     pubsub: gossipsub::Behaviour,
 }
 
@@ -51,7 +52,7 @@ impl Behaviour {
         local_key: identity::Keypair,
         relay_client: Option<relay::client::Behaviour>,
         pubsub_topics: Vec<String>,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Self {
         let pub_key = local_key.public();
         let kademlia = {
             let mut kademlia_config = kad::Config::new(IPFS_PROTO_NAME);
@@ -73,18 +74,23 @@ impl Behaviour {
             kademlia
         }.into();
 
-        let autonat = match relay_client {
-            Some(ref _val) => Some(autonat::Behaviour::new(PeerId::from(pub_key.clone()), Default::default())),
+
+
+        let relay: Toggle<relay::Behaviour> = match relay_client {
+            Some(ref _val) => None,
+            None => Some(relay::Behaviour::new(PeerId::from(pub_key.clone()), Default::default())),
+        }.into();
+        let mdns: Toggle<mdns::tokio::Behaviour> = match relay_client {
+            Some(ref _val) => Some(mdns::tokio::Behaviour::new(mdns::Config::default(), pub_key.clone().to_peer_id())?),
+            None => None,
+        }.into();
+        let dcutr: Toggle<dcutr::Behaviour> = match relay_client {
+            Some(ref _val) => Some(dcutr::Behaviour::new(pub_key.clone().to_peer_id())),
             None => None,
         }.into();
 
-        let relay: Option<relay::Behaviour> = match relay_client {
-            Some(ref _val) => Some(relay::Behaviour::new(PeerId::from(pub_key.clone()), Default::default())),
-            None => None,
-        }.into();
-
-        Ok(Self {
-            relay: relay.into(),
+        Self {
+            relay: relay,
             relay_client: relay_client.into(),
             ping: ping::Behaviour::new(ping::Config::new()),
             identify: identify::Behaviour::new(
@@ -93,11 +99,11 @@ impl Behaviour {
                 ),
             ),
             kademlia,
-            autonat,
-            mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), pub_key.clone().to_peer_id()).expect("mdns inital failed!"),
-            dcutr: dcutr::Behaviour::new(pub_key.clone().to_peer_id()),
+            autonat: autonat::Behaviour::new(PeerId::from(pub_key.clone()), Default::default()),
+            mdns: mdns,
+            dcutr: dcutr,
             pubsub: Self::new_gossipsub(local_key, pubsub_topics),
-        })
+        }
     }
 
     fn new_gossipsub(

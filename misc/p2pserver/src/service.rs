@@ -25,7 +25,7 @@ use base64::Engine;
 
 use crate::config::Config;
 use crate::http_service;
-use crate::behaviour::{Behaviour, ResponseType, BehaviourErr};
+use crate::behaviour::{Behaviour, ResponseType};
 
 
 /// `EventHandler` is the trait that defines how to handle requests / broadcast-messages from remote peers.
@@ -42,9 +42,9 @@ pub struct Client {
 }
 
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
-pub fn new<E: EventHandler>(config: Config) -> Result<(Client, Server<E>), Box<dyn Error>> {
+pub async fn new<E: EventHandler>(config: Config) -> Result<(Client, Server<E>), Box<dyn Error>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
-    let server = Server::new(config, cmd_receiver)?;
+    let server = Server::new(config, cmd_receiver).await?;
     let client = Client { cmd_sender };
 
     Ok((client, server))
@@ -106,7 +106,7 @@ pub struct Server<E: EventHandler> {
 
 impl<E: EventHandler> Server<E> {
     /// Create a new `Server`.
-    pub fn new(
+    pub async fn new(
         config: Config,
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error>> {
@@ -125,25 +125,8 @@ impl<E: EventHandler> Server<E> {
             keypair
         };
 
-        let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
-            .with_tokio()
-            .with_tcp(
-                tcp::Config::default().port_reuse(true).nodelay(true),
-                noise::Config::new,
-                yamux::Config::default,
-            )?
-            .with_quic()
-            .with_dns()?
-            .with_websocket(noise::Config::new, yamux::Config::default)
-            .with_relay_client(noise::Config::new, yamux::Config::default).expect("relay client creation failed")
-            .with_bandwidth_metrics(&mut metric_registry)
-            .with_behaviour(|key, relay_client| {
-                Behaviour::new(key.clone(), Some(relay_client), config.pubsub_topics.clone())
-            })?
-            .build();
-
-        if config.addresses.append_announce.is_empty() {
-            swarm = libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
+        let mut swarm = match config.addresses.append_announce.is_empty() {
+            true => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
                     tcp::Config::default().port_reuse(true).nodelay(true),
@@ -153,12 +136,32 @@ impl<E: EventHandler> Server<E> {
                 .with_quic()
                 .with_dns()?
                 .with_websocket(noise::Config::new, yamux::Config::default)
+                .await?
+                .with_relay_client(noise::Config::new, yamux::Config::default)?
+                .with_bandwidth_metrics(&mut metric_registry)
+                .with_behaviour(|key, relay_client| {
+                    Behaviour::new(key.clone(), Some(relay_client), config.pubsub_topics.clone())
+                })?
+                .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+                .build(),
+            false => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
+                .with_tokio()
+                .with_tcp(
+                    tcp::Config::default().port_reuse(true).nodelay(true),
+                    noise::Config::new,
+                    yamux::Config::default,
+                )?
+                .with_quic()
+                .with_dns()?
+                .with_websocket(noise::Config::new, yamux::Config::default)
+                .await?
                 .with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key| {
                     Behaviour::new(key.clone(), None, config.pubsub_topics.clone())
                 })?
-                .build();
-        }
+                .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+                .build(),
+        };
 
         if config.addresses.swarm.is_empty() {
             tracing::warn!("No listen addresses configured");
@@ -349,7 +352,7 @@ impl<E: EventHandler> Server<E> {
     }
 
     fn add_addresses(&mut self, peer_id: &PeerId, addresses: Vec<Multiaddr>) {
-        for addr in addresses.into_iter().unique() {
+        for addr in addresses.into_iter() {
             self.network_service
                 .behaviour_mut()
                 .add_address(peer_id, addr);
