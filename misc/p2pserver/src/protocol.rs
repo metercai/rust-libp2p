@@ -26,7 +26,7 @@ const BOOTNODES: [&str; 4] = [
     "QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
 ];
 
-const IPFS_PROTO_NAME: StreamProtocol = StreamProtocol::new("/ipfs/kad/1.0.0");
+const TOKEN_PROTO_NAME: StreamProtocol = StreamProtocol::new("/token/kad/1.0.0");
 
 pub(crate) type ResponseType = Result<Vec<u8>, ()>;
 
@@ -51,22 +51,15 @@ impl Behaviour {
     ) -> Self {
         let pub_key = local_key.public();
         let kademlia = {
-            let mut kademlia_config = kad::Config::new(IPFS_PROTO_NAME);
+            let mut kademlia_config = kad::Config::new(TOKEN_PROTO_NAME);
             // Instantly remove records and provider records.
-            //
-            // TODO: Replace hack with option to disable both.
-            kademlia_config.set_record_ttl(Some(Duration::from_secs(0)));
-            kademlia_config.set_provider_record_ttl(Some(Duration::from_secs(0)));
+            // kademlia_config.set_record_ttl(Some(Duration::from_secs(0)));
+            // kademlia_config.set_provider_record_ttl(Some(Duration::from_secs(0)));
             let mut kademlia = kad::Behaviour::with_config(
                 pub_key.to_peer_id(),
                 kad::store::MemoryStore::new(pub_key.to_peer_id()),
                 kademlia_config,
             );
-            let bootaddr = Multiaddr::from_str("/dnsaddr/bootstrap.libp2p.io").unwrap();
-            for peer in &BOOTNODES {
-                kademlia.add_address(&PeerId::from_str(peer).unwrap(), bootaddr.clone());
-            }
-            kademlia.bootstrap().unwrap();
             kademlia
         };
 
@@ -144,6 +137,10 @@ impl Behaviour {
             tracing::debug!("☕ Discovery process paused due to no boot node");
         } else {
             tracing::debug!("☕ Starting a discovery process");
+            let bootaddr = Multiaddr::from_str("/dnsaddr/bootstrap.token.tm").unwrap();
+            for peer in &BOOTNODES {
+                self.kademlia.add_address(&PeerId::from_str(peer).unwrap(), bootaddr.clone());
+            }
             let _ = self.kademlia.bootstrap();
         }
     }

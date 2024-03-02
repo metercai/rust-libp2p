@@ -125,7 +125,7 @@ impl<E: EventHandler> Server<E> {
             keypair
         };
 
-        let mut swarm = match config.addresses.append_announce.is_empty() {
+        let mut swarm = match config.addresses.announce.is_empty() {
             true => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
@@ -176,16 +176,27 @@ impl<E: EventHandler> Server<E> {
             }
         }
 
-        if config.addresses.append_announce.is_empty() {
+        if config.addresses.announce.is_empty() {
             tracing::warn!("No external addresses configured");
         }
-        for address in &config.addresses.append_announce {
+        for address in &config.addresses.announce {
             swarm.add_external_address(address.clone())
         }
         tracing::info!(
             "External addresses: {:?}",
             swarm.external_addresses().collect::<Vec<_>>()
         );
+
+        // setting the boot node if specified.
+        match config.boot_nodes {
+            Some(boot_nodes) => {
+                for boot_node in boot_nodes.into_iter() {
+                    swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address())
+                }
+            }
+            None => {}
+        }
+        swarm.behaviour_mut().discover_peers();
 
         let metrics = Metrics::new(&mut metric_registry);
         let build_info = Info::new(vec![("version".to_string(), env!("CARGO_PKG_VERSION"))]);
@@ -201,10 +212,7 @@ impl<E: EventHandler> Server<E> {
             }
         });
 
-        // Connect to the boot node if specified.
-        //if let Some(boot_node) = config.boot_node {
-        //    swarm.dial(boot_node.address())?;
-        //}
+
 
         // Create a ticker to periodically discover new peers.
         let interval_secs = config.discovery_interval.unwrap_or(30);

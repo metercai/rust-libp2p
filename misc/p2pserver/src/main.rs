@@ -10,6 +10,7 @@ mod protocol;
 mod config;
 mod http_service;
 mod service;
+mod error;
 
 use crate::service::{Client, EventHandler};
 
