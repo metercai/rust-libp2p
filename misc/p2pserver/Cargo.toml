@@ -25,6 +25,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zeroize = "1"
+either = "1.8"
+void = "1.0"
 
 [lints]
 workspace = true

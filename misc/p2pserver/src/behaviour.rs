@@ -3,15 +3,23 @@ use libp2p::identify;
 use libp2p::kad;
 use libp2p::ping;
 use libp2p::relay;
+use libp2p::multiaddr::Protocol;
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, StreamProtocol};
 use libp2p::{identity, Multiaddr, PeerId};
+use std::io;
 use std::str::FromStr;
 use std::time::Duration;
 use std::hash::DefaultHasher;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::error::Error;
+use std::net::IpAddr;
+use std::collections::HashMap;
+use either::Either;
+use void::Void;
+
 
 const BOOTNODES: [&str; 4] = [
     "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
@@ -22,13 +30,16 @@ const BOOTNODES: [&str; 4] = [
 
 const IPFS_PROTO_NAME: StreamProtocol = StreamProtocol::new("/ipfs/kad/1.0.0");
 
+pub(crate) type BehaviourErr<Void> = Either<Either<Either<Either<io::Error, io::Error>, Void>, Void>, Void>;
+pub(crate) type ResponseType = Result<Vec<u8>, ()>;
+
 #[derive(NetworkBehaviour)]
 pub(crate) struct Behaviour {
     relay: Toggle<relay::Behaviour>,
     relay_client: Toggle<relay::client::Behaviour>,
     ping: ping::Behaviour,
     identify: identify::Behaviour,
-    pub(crate) kademlia: Toggle<kad::Behaviour<kad::store::MemoryStore>>,
+    pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
     autonat: Toggle<autonat::Behaviour>,
     mdns: mdns::tokio::Behaviour,
     dcutr: dcutr::Behaviour,
@@ -40,7 +51,7 @@ impl Behaviour {
         local_key: identity::Keypair,
         relay_client: Option<relay::client::Behaviour>,
         pubsub_topics: Vec<String>,
-    ) -> Self {
+    ) -> Result<Self, Box<dyn Error>> {
         let pub_key = local_key.public();
         let kademlia = {
             let mut kademlia_config = kad::Config::new(IPFS_PROTO_NAME);
@@ -59,20 +70,20 @@ impl Behaviour {
                 kademlia.add_address(&PeerId::from_str(peer).unwrap(), bootaddr.clone());
             }
             kademlia.bootstrap().unwrap();
-            Some(kademlia)
+            kademlia
         }.into();
 
         let autonat = match relay_client {
-            Some(ref val) => Some(autonat::Behaviour::new(PeerId::from(pub_key.clone()), Default::default())),
+            Some(ref _val) => Some(autonat::Behaviour::new(PeerId::from(pub_key.clone()), Default::default())),
             None => None,
         }.into();
 
         let relay: Option<relay::Behaviour> = match relay_client {
-            Some(ref val) => Some(relay::Behaviour::new(PeerId::from(pub_key.clone()), Default::default())),
+            Some(ref _val) => Some(relay::Behaviour::new(PeerId::from(pub_key.clone()), Default::default())),
             None => None,
         }.into();
 
-        Self {
+        Ok(Self {
             relay: relay.into(),
             relay_client: relay_client.into(),
             ping: ping::Behaviour::new(ping::Config::new()),
@@ -86,7 +97,7 @@ impl Behaviour {
             mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), pub_key.clone().to_peer_id()).expect("mdns inital failed!"),
             dcutr: dcutr::Behaviour::new(pub_key.clone().to_peer_id()),
             pubsub: Self::new_gossipsub(local_key, pubsub_topics),
-        }
+        })
     }
 
     fn new_gossipsub(
@@ -115,7 +126,55 @@ impl Behaviour {
             let topic = IdentTopic::new(t);
             gossipsub.subscribe(&topic).expect("Failed to subscribe to topic");
         }
-
         gossipsub
     }
+
+    pub fn discover_peers(&mut self) {
+        if self.known_peers().is_empty() {
+            tracing::debug!("☕ Discovery process paused due to no boot node");
+        } else {
+            tracing::debug!("☕ Starting a discovery process");
+            let _ = self.kademlia.bootstrap();
+        }
+    }
+
+    pub fn known_peers(&mut self) -> HashMap<PeerId, Vec<Multiaddr>> {
+        let mut peers = HashMap::new();
+        for b in self.kademlia.kbuckets() {
+            for e in b.iter() {
+                peers.insert(*e.node.key.preimage(), e.node.value.clone().into_vec());
+            }
+        }
+        peers
+    }
+    pub fn broadcast(&mut self, topic: String, message: Vec<u8>) -> Result<(), Box<dyn Error>> {
+        let topic = gossipsub::IdentTopic::new(topic);
+        self.pubsub.publish(topic, message)?;
+
+        Ok(())
+    }
+
+    pub fn add_address(&mut self, peer_id: &PeerId, addr: Multiaddr) {
+        if can_add_to_dht(&addr) {
+            tracing::debug!("☕ Adding address {} from {:?} to the DHT.", addr, peer_id);
+            self.kademlia.add_address(peer_id, addr);
+        }
+    }
+
+    pub fn remove_peer(&mut self, peer_id: &PeerId) {
+        tracing::debug!("☕ Removing peer {} from the DHT.", peer_id);
+        self.kademlia.remove_peer(peer_id);
+    }
+
+}
+
+fn can_add_to_dht(addr: &Multiaddr) -> bool {
+    let ip = match addr.iter().next() {
+        Some(Protocol::Ip4(ip)) => IpAddr::V4(ip),
+        Some(Protocol::Ip6(ip)) => IpAddr::V6(ip),
+        Some(Protocol::Dns(_)) | Some(Protocol::Dns4(_)) | Some(Protocol::Dns6(_)) => return true,
+        _ => return false,
+    };
+
+    !ip.is_loopback() && !ip.is_unspecified()
 }

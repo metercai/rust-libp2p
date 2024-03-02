@@ -9,6 +9,8 @@ pub(crate) struct Config {
     pub(crate) identity: Identity,
     pub(crate) addresses: Addresses,
     pub(crate) pubsub_topics: Vec<String>,
+    pub(crate) metrics_path: String,
+    pub(crate) discovery_interval: Option<u64>,
 }
 
 impl Config {
