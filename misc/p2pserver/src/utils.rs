@@ -10,6 +10,12 @@ pub fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>>
     let mut sys = System::new_all();
     sys.refresh_all();
     println!("System: {:?}", sys);
+    for cpu in sys.cpus() {
+        println!("name:{}", cpu.name());
+        println!("vendor_id:{}", cpu.vendor_id());
+        println!("brand:{}", cpu.brand());
+        println!("frequency:{}", cpu.frequency());
+    }
     println!("=> disks:");
     let disks = Disks::new_with_refreshed_list();
     for disk in &disks {
@@ -26,7 +32,7 @@ pub fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>>
         println!("{component:?}");
     }
     let exe_path = env::current_exe()?;
-    let password = format!("{}:{}:{:?}:{:?}:{:?}", exe_path.display(), sys.total_memory(), System::long_os_version(), System::host_name(), System::cpu_arch());
+    let password = format!("{}:{}:{:?}:{:?}:{:?}", exe_path.display(), sys.total_memory(), System::name(), System::host_name(), System::cpu_arch());
     println!("password: {password}");
 
 
