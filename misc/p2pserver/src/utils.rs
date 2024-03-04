@@ -2,37 +2,49 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::env;
 use std::path::Path;
+// extern crate systemstat;
 use openssl::pkey::PKey;
 use openssl::symm::Cipher;
 use sysinfo::{Components, Disks, Networks, System};
+use systemstat::{System as SystemStat, Platform};
+use systemstat::data::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 pub fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut sys = System::new_all();
     sys.refresh_all();
-    println!("System: {:?}", sys);
-    for cpu in sys.cpus() {
-        println!("name:{}", cpu.name());
-        println!("vendor_id:{}", cpu.vendor_id());
-        println!("brand:{}", cpu.brand());
-        println!("frequency:{}", cpu.frequency());
+    let sys_stat = SystemStat::new();
+    match sys_stat.networks() {
+        Ok(netifs) => {
+            println!("\nNetworks:");
+            for netif in netifs.values() {
+                let addrs = &netif.addrs;
+                for addr in addrs.iter() {
+                    match addr.addr {
+                        IpAddr::V4(ipv4) => {
+                            if ipv4.is_private() && !netif.name.starts_with("bridge") && !netif.name.starts_with("docker") {
+                                println!("{} ({:?})", netif.name, ipv4);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Err(x) => println!("\nNetworks: error: {}", x)
     }
-    println!("=> disks:");
-    let disks = Disks::new_with_refreshed_list();
-    for disk in &disks {
-        println!("{disk:?}");
+    match sys_stat.block_device_statistics() {
+        Ok(stats) => {
+            for blkstats in stats.values() {
+                println!("{}: {:?}", blkstats.name, blkstats);
+            }
+        }
+        Err(x) => println!("\nBlock statistics error: {}", x)
     }
-    let networks = Networks::new_with_refreshed_list();
-    println!("=> networks:");
-    for (interface_name, data) in &networks {
-        println!("{interface_name},");
-    }
-    let components = Components::new_with_refreshed_list();
-    println!("=> components:");
-    for component in &components {
-        println!("{component:?}");
-    }
+
     let exe_path = env::current_exe()?;
-    let password = format!("{}:{}:{:?}:{:?}:{:?}", exe_path.display(), sys.total_memory(), System::name(), System::host_name(), System::cpu_arch());
+    let cpu = sys.cpus().get(0).unwrap();
+    let password = format!("{}@{}/{}/{}/{}/{}/{}/{}", exe_path.display(), System::host_name().unwrap(),
+        System::distribution_id(), System::name().unwrap(), cpu.brand(),sys.cpus().len(), cpu.frequency(), sys.total_memory());
     println!("password: {password}");
 
 
@@ -40,22 +52,29 @@ pub fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>>
     let private_key = match file_path.exists() {
         false => {
             let private_key = PKey::generate_ed25519()?;
+            println!("create: private_key_bytes: {:?}", private_key);
+            println!("create: private_key_der: {:?}", private_key.raw_private_key()?);
             let pem_key = private_key.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), password.as_bytes())?;
             let mut file = File::create(file_path)?;
             file.write_all(&pem_key)?;
-            private_key.private_key_to_der()?
+            private_key.raw_private_key()?
         }
         true => {
             let mut file = File::open(file_path)?;
             let mut key_data = Vec::new();
             file.read_to_end(&mut key_data)?;
             let private_key = PKey::private_key_from_pem_passphrase(&key_data, password.as_bytes())?;
-            private_key.private_key_to_der()?
+            println!("read: private_key_bytes: {:?}", private_key);
+            println!("read: private_key_der: {:?}", private_key.raw_private_key()?);
+            private_key.raw_private_key()?
         }
     };
 
     Ok(private_key)
 }
+
+
+
 
 /*pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 

@@ -12,7 +12,8 @@ use tokio::{
         time::{self, Interval},
         sync::mpsc::{self, UnboundedSender, UnboundedReceiver} };
 use libp2p::{
-        identity, kad, tcp, identify, noise, yamux, ping,
+        kad, tcp, identify, noise, yamux, ping,
+        identity::{Keypair, ed25519},
         futures::StreamExt,
         metrics::{Metrics, Recorder},
         swarm::SwarmEvent,
@@ -111,8 +112,8 @@ impl<E: EventHandler> Server<E> {
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error>> {
         let mut metric_registry = Registry::default();
-        let local_keypair  = identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
-                    utils::read_key_or_generate_key()?))?;
+        let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
+            try_from_bytes(Zeroizing::new(utils::read_key_or_generate_key()?))?));
 
         let mut swarm = match config.addresses.announce.is_empty() {
             true => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
