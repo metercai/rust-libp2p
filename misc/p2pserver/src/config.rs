@@ -8,7 +8,6 @@ use crate::error::P2pError;
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub(crate) struct Config {
-    pub(crate) identity: Identity,
     pub(crate) addresses: Addresses,
     pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>,
     pub(crate) pubsub_topics: Vec<String>,
@@ -24,25 +23,17 @@ impl Config {
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub(crate) struct Identity {
-    #[serde(rename = "PeerID")]
-    pub(crate) peer_id: String,
-    pub(crate) priv_key: String,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "PascalCase")]
 pub(crate) struct Addresses {
     pub(crate) swarm: Vec<Multiaddr>,
     pub(crate) announce: Vec<Multiaddr>,
 }
 
-impl zeroize::Zeroize for Config {
-    fn zeroize(&mut self) {
-        self.identity.peer_id.zeroize();
-        self.identity.priv_key.zeroize();
-    }
-}
+// impl zeroize::Zeroize for Config {
+//     fn zeroize(&mut self) {
+//         self.identity.peer_id.zeroize();
+//         self.identity.priv_key.zeroize();
+//     }
+// }
 
 /// Peer ID with multiaddress.
 ///

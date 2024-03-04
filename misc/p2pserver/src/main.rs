@@ -5,12 +5,14 @@ use std::time::Duration;
 use std::thread;
 use tracing_subscriber::EnvFilter;
 use zeroize::Zeroizing;
+use libp2p::identity::Keypair;
 
 mod protocol;
 mod config;
 mod http_service;
 mod service;
 mod error;
+mod utils;
 
 use crate::service::{Client, EventHandler};
 
@@ -19,13 +21,9 @@ const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 #[derive(Debug, Parser)]
 #[clap(name = "p2perver", about = "A rust-libp2p server binary.")]
 struct Opts {
-    /// Path to IPFS config file.
-    #[clap(long)]
+    /// Path to p2pserver config file.
+    #[clap(long, default_value = "../p2pconfig.json")]
     config: PathBuf,
-
-    /// Metric endpoint path.
-    #[clap(long, default_value = "/metrics")]
-    metrics_path: String,
 }
 
 #[tokio::main]
@@ -35,6 +33,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .try_init();
 
     let opt = Opts::parse();
+    let key = Keypair::from_protobuf_encoding(&utils::read_key_or_generate_key()?)?;
+    println!("local key: {:?}",key);
 
     let config = config::Config::from_file(opt.config.as_path())?;
 

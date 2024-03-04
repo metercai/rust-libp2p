@@ -19,12 +19,12 @@ use libp2p::{
         gossipsub::{self, TopicHash},
         request_response::ResponseChannel,
         Swarm, Multiaddr, PeerId,};
-use prometheus_client::{metrics::info::Info, registry::Registry };
+use prometheus_client::{metrics::info::Info, registry::Registry};
 use zeroize::Zeroizing;
 use base64::Engine;
 
 use crate::config::Config;
-use crate::http_service;
+use crate::{http_service, utils};
 use crate::protocol::*;
 
 
@@ -111,19 +111,8 @@ impl<E: EventHandler> Server<E> {
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error>> {
         let mut metric_registry = Registry::default();
-        let local_keypair = {
-            let keypair = identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
-                base64::engine::general_purpose::STANDARD
-                    .decode(config.identity.priv_key.as_bytes())?,
-            ))?;
-            let peer_id = keypair.public().into();
-            assert_eq!(
-                PeerId::from_str(&config.identity.peer_id)?,
-                peer_id,
-                "Expect peer id derived from private key and peer id retrieved from config to match."
-            );
-            keypair
-        };
+        let local_keypair  = identity::Keypair::from_protobuf_encoding(&Zeroizing::new(
+                    utils::read_key_or_generate_key()?))?;
 
         let mut swarm = match config.addresses.announce.is_empty() {
             true => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
