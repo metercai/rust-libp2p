@@ -5,6 +5,7 @@ use std::{
         error::Error,
         str::FromStr,
         io,
+        net::Ipv4Addr,
         time::Duration };
 use tokio::{
         select,
@@ -13,6 +14,7 @@ use tokio::{
         sync::mpsc::{self, UnboundedSender, UnboundedReceiver} };
 use libp2p::{
         kad, tcp, identify, noise, yamux, ping,
+        core::multiaddr::Protocol,
         identity::{Keypair, ed25519},
         futures::StreamExt,
         metrics::{Metrics, Recorder},
@@ -20,6 +22,7 @@ use libp2p::{
         gossipsub::{self, TopicHash},
         request_response::ResponseChannel,
         Swarm, Multiaddr, PeerId,};
+
 use prometheus_client::{metrics::info::Info, registry::Registry};
 use zeroize::Zeroizing;
 use base64::Engine;
@@ -153,39 +156,48 @@ impl<E: EventHandler> Server<E> {
                 .build(),
         };
 
-        if config.addresses.swarm.is_empty() {
-            tracing::warn!("No listen addresses configured");
-        }
-        for address in &config.addresses.swarm {
-            match swarm.listen_on(address.clone()) {
-                Ok(_) => {}
-                Err(e @ libp2p::TransportError::MultiaddrNotSupported(_)) => {
-                    tracing::warn!(%address, "Failed to listen on address, continuing anyways, {e}")
+        let expected_listener_id = swarm
+            .listen_on(Multiaddr::empty().with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED)).with(Protocol::Tcp(0)))?;
+        let mut listen_addresses = 0;
+        while listen_addresses < 2 {
+            if let SwarmEvent::NewListenAddr {
+                listener_id,
+                address,
+            } = swarm.next().await.unwrap()
+            {
+                if listener_id == expected_listener_id {
+                    listen_addresses += 1;
                 }
-                Err(e) => return Err(e.into()),
+                tracing::info!("P2PServer Listening on {address}");
             }
         }
+
+        let relay_addr = match config.boot_nodes {
+            Some(boot_nodes) => {
+                let boot_nodes_clone = boot_nodes.clone();
+                for boot_node in boot_nodes.into_iter() {
+                    swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address());
+                    // swarm.behaviour_mut().auto_nat.add_server(&boot_node.peer_id(), boot_node.address());
+                };
+                Some(boot_nodes_clone[0].address())
+            }
+            None => { None }
+        }.unwrap();
+
+        let id = swarm.listen_on(relay_addr.with(Protocol::P2pCircuit))?;
+        tracing::info!("p2pserver listen relay address listenerid: {:?}", id);
 
         if config.addresses.announce.is_empty() {
             tracing::warn!("No external addresses configured");
         }
-        for address in &config.addresses.announce {
-            swarm.add_external_address(address.clone())
-        }
-        tracing::info!(
-            "External addresses: {:?}",
-            swarm.external_addresses().collect::<Vec<_>>()
-        );
-
-        // setting the boot node if specified.
-        match config.boot_nodes {
-            Some(boot_nodes) => {
-                for boot_node in boot_nodes.into_iter() {
-                    swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address())
-                }
+        else {
+            for address in &config.addresses.announce {
+                swarm.add_external_address(address.clone())
             }
-            None => {}
-        }
+            tracing::info!("External addresses: {:?}", swarm.external_addresses().collect::<Vec<_>>());
+        }// setting the boot node if specified.
+
+
         swarm.behaviour_mut().discover_peers();
 
         let metrics = Metrics::new(&mut metric_registry);

@@ -2,51 +2,22 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::env;
 use std::path::Path;
-// extern crate systemstat;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use openssl::pkey::PKey;
 use openssl::symm::Cipher;
-use sysinfo::{Components, Disks, Networks, System};
-use systemstat::{System as SystemStat, Platform};
-use systemstat::data::{IpAddr, Ipv4Addr, Ipv6Addr};
+use sysinfo::System;
+use systemstat::{System as SystemStat, Platform, data};
+
 
 pub fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut sys = System::new_all();
     sys.refresh_all();
-    let sys_stat = SystemStat::new();
-    match sys_stat.networks() {
-        Ok(netifs) => {
-            println!("\nNetworks:");
-            for netif in netifs.values() {
-                let addrs = &netif.addrs;
-                for addr in addrs.iter() {
-                    match addr.addr {
-                        IpAddr::V4(ipv4) => {
-                            if ipv4.is_private() && !netif.name.starts_with("bridge") && !netif.name.starts_with("docker") {
-                                println!("{} ({:?})", netif.name, ipv4);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-        Err(x) => println!("\nNetworks: error: {}", x)
-    }
-    match sys_stat.block_device_statistics() {
-        Ok(stats) => {
-            for blkstats in stats.values() {
-                println!("{}: {:?}", blkstats.name, blkstats);
-            }
-        }
-        Err(x) => println!("\nBlock statistics error: {}", x)
-    }
 
     let exe_path = env::current_exe()?;
     let cpu = sys.cpus().get(0).unwrap();
     let password = format!("{}@{}/{}/{}/{}/{}/{}/{}", exe_path.display(), System::host_name().unwrap(),
-        System::distribution_id(), System::name().unwrap(), cpu.brand(),sys.cpus().len(), cpu.frequency(), sys.total_memory());
+        System::distribution_id(), System::name().unwrap(), cpu.brand(),sys.cpus().len(), cpu.frequency(), sys.total_memory()/(1024*1024*1024));
     println!("password: {password}");
-
 
     let file_path = Path::new(".token_user.pem");
     let private_key = match file_path.exists() {
@@ -73,7 +44,30 @@ pub fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>>
     Ok(private_key)
 }
 
-
+pub fn get_local_ipaddr() -> Result<Vec<IpAddr>, Box<dyn std::error::Error>> {
+    let sys_stat = SystemStat::new();
+    let mut ipaddrs: Vec<IpAddr> = Vec::new();
+    match sys_stat.networks() {
+        Ok(netifs) => {
+            for netif in netifs.values() {
+                let addrs = &netif.addrs;
+                for addr in addrs.iter() {
+                    match addr.addr {
+                        data::IpAddr::V4(ipv4) => {
+                            if ipv4.is_private() && !netif.name.starts_with("bridge") && !netif.name.starts_with("docker") {
+                                ipaddrs.push(IpAddr::V4(ipv4));
+                                println!("Networks: {} ({:?})", netif.name, ipv4);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Err(x) => println!("\nNetworks: error: {}", x)
+    };
+    Ok(ipaddrs)
+}
 
 
 /*pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
