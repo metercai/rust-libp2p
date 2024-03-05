@@ -118,8 +118,9 @@ impl<E: EventHandler> Server<E> {
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(utils::read_key_or_generate_key()?))?));
 
-        let mut swarm = match config.addresses.announce.is_empty() {
-            true => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
+        let announce = config.addresses.unwrap().announce;
+        let mut swarm = match announce.clone() {
+            Some(announce) => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
                     tcp::Config::default().port_reuse(true).nodelay(true),
@@ -137,7 +138,7 @@ impl<E: EventHandler> Server<E> {
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
                 .build(),
-            false => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
+            None => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
                     tcp::Config::default().port_reuse(true).nodelay(true),
@@ -187,16 +188,15 @@ impl<E: EventHandler> Server<E> {
         let id = swarm.listen_on(relay_addr.with(Protocol::P2pCircuit))?;
         tracing::info!("p2pserver listen relay address listenerid: {:?}", id);
 
-        if config.addresses.announce.is_empty() {
-            tracing::warn!("No external addresses configured");
-        }
-        else {
-            for address in &config.addresses.announce {
-                swarm.add_external_address(address.clone())
+        match announce.clone() {
+            Some(announce) => {
+                for address in announce.clone().into_iter() {
+                    swarm.add_external_address(address.clone());
+                }
+                tracing::info!("External addresses: {:?}", announce)
             }
-            tracing::info!("External addresses: {:?}", swarm.external_addresses().collect::<Vec<_>>());
-        }// setting the boot node if specified.
-
+            None => tracing::warn!("No external addresses configured")
+        }
 
         swarm.behaviour_mut().discover_peers();
 
