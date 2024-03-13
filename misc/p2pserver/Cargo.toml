@@ -34,6 +34,7 @@ thiserror = "1.0"
 sysinfo = "0.30.6"
 systemstat = "0.2.3"
 openssl = {  version = "0.10.64", features = ["vendored"] }
+toml = "0.8.10"
 
 
 [lints]

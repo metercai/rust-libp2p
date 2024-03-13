@@ -6,13 +6,15 @@ use std::thread;
 use tracing_subscriber::EnvFilter;
 use zeroize::Zeroizing;
 use libp2p::identity::{ed25519::SecretKey, Keypair};
+use std::collections::HashMap;
+use std::env;
 
 mod protocol;
-mod config;
 mod http_service;
-mod service;
 mod error;
 mod utils;
+mod service;
+mod config;
 
 use crate::service::{Client, EventHandler};
 
@@ -22,12 +24,13 @@ const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 #[clap(name = "p2perver", about = "A rust-libp2p server binary.")]
 struct Opts {
     /// Path to p2pserver config file.
-    #[clap(long, default_value = "../p2pconfig.json")]
+    #[clap(long, default_value = "../p2pconfig.toml")]
     config: PathBuf,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    env::set_var("RUST_LOG", "info");
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
@@ -39,7 +42,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("local key: {:?}",key);
 
     let config = config::Config::from_file(opt.config.as_path())?;
-
 
     let (client, mut server) = service::new(config).await?;
     server.set_event_handler(Handler);
@@ -79,7 +81,7 @@ impl EventHandler for Handler {
 }
 
 fn get_node_status(client: Client) {
-    let dur = Duration::from_secs(7);
+    let dur = Duration::from_secs(17);
     loop {
         thread::sleep(dur);
         let node_status = client.get_node_status();

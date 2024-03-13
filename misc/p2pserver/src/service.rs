@@ -27,9 +27,11 @@ use prometheus_client::{metrics::info::Info, registry::Registry};
 use zeroize::Zeroizing;
 use base64::Engine;
 
-use crate::config::Config;
 use crate::{http_service, utils};
 use crate::protocol::*;
+use crate::config::Config;
+
+
 
 
 /// `EventHandler` is the trait that defines how to handle requests / broadcast-messages from remote peers.
@@ -118,7 +120,10 @@ impl<E: EventHandler> Server<E> {
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(utils::read_key_or_generate_key()?))?));
 
-        let announce = config.addresses.unwrap().announce;
+        let announce = config.address.announce;
+        let pubsub_topics: Vec<_> = config.pubsub_topics;
+        let boot_nodes = config.address.boot_nodes;
+
         let mut swarm = match announce.clone() {
             Some(announce) => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
@@ -134,7 +139,7 @@ impl<E: EventHandler> Server<E> {
                 .with_relay_client(noise::Config::new, yamux::Config::default)?
                 .with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key, relay_client| {
-                    Behaviour::new(key.clone(), Some(relay_client), config.pubsub_topics.clone())
+                    Behaviour::new(key.clone(), Some(relay_client), pubsub_topics.clone())
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
                 .build(),
@@ -151,7 +156,7 @@ impl<E: EventHandler> Server<E> {
                 .await?
                 .with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key| {
-                    Behaviour::new(key.clone(), None, config.pubsub_topics.clone())
+                    Behaviour::new(key.clone(), None, pubsub_topics.clone())
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
                 .build(),
@@ -172,8 +177,12 @@ impl<E: EventHandler> Server<E> {
                 tracing::info!("P2PServer Listening on {address}");
             }
         }
+        let listen_addrs = swarm.listeners();
+        for addr in listen_addrs {
+            tracing::info!("P2PServer start up: {}/p2p/{}", addr, swarm.local_peer_id());
+        }
 
-        let relay_addr = match config.boot_nodes {
+        let relay_addr = match boot_nodes {
             Some(boot_nodes) => {
                 let boot_nodes_clone = boot_nodes.clone();
                 for boot_node in boot_nodes.into_iter() {
@@ -183,15 +192,20 @@ impl<E: EventHandler> Server<E> {
                 Some(boot_nodes_clone[0].address())
             }
             None => { None }
-        }.unwrap();
+        };
 
-        let id = swarm.listen_on(relay_addr.with(Protocol::P2pCircuit))?;
-        tracing::info!("p2pserver listen relay address listenerid: {:?}", id);
+        match relay_addr {
+            Some(relay_addr) => {
+                let id = swarm.listen_on(relay_addr.with(Protocol::P2pCircuit))?;
+                tracing::info!("p2pserver listen relay address listenerid: {:?}", id);
+            }
+            None => {}
+        }
 
         match announce.clone() {
             Some(announce) => {
                 for address in announce.clone().into_iter() {
-                    swarm.add_external_address(address.clone());
+                    swarm.add_external_address(address.clone().into());
                 }
                 tracing::info!("External addresses: {:?}", announce)
             }
@@ -217,7 +231,7 @@ impl<E: EventHandler> Server<E> {
 
 
         // Create a ticker to periodically discover new peers.
-        let interval_secs = config.discovery_interval.unwrap_or(30);
+        let interval_secs = config.discovery_interval;
         let instant = time::Instant::now() + Duration::from_secs(5);
         let discovery_ticker = time::interval_at(instant, Duration::from_secs(interval_secs));
 
@@ -228,7 +242,7 @@ impl<E: EventHandler> Server<E> {
             cmd_receiver,
             event_handler: OnceCell::new(),
             discovery_ticker,
-            pubsub_topics: config.pubsub_topics.clone(),
+            pubsub_topics,
             metrics
         })
     }

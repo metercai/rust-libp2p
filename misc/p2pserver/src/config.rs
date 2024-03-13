@@ -1,39 +1,42 @@
-use libp2p::{multiaddr, Multiaddr, PeerId};
-use serde_derive::{Deserialize, Serialize};
-use std::error::Error;
 use std::path::Path;
+use std::error::Error;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::{fmt, str::FromStr};
 use crate::error::P2pError;
+use libp2p::{multiaddr, Multiaddr, PeerId};
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "PascalCase")]
 pub(crate) struct Config {
-    pub(crate) addresses: Option<Addresses>,
-    pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>,
+    pub(crate) address: Address,
     pub(crate) pubsub_topics: Vec<String>,
     pub(crate) metrics_path: String,
-    pub(crate) discovery_interval: Option<u64>,
+    pub(crate) discovery_interval: u64
+}
+
+#[derive(Clone, Deserialize)]
+pub(crate) struct Address {
+    pub(crate) announce: Option<Multiaddr>,
+    pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>
 }
 
 impl Config {
     pub(crate) fn from_file(path: &Path) -> Result<Self, Box<dyn Error>> {
-        Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+        let config: Self = toml::from_str(&std::fs::read_to_string(path)?).unwrap();
+        let discovery_interval = if config.discovery_interval > 0 {
+            config.discovery_interval
+        } else {
+            30
+        };
+        Ok(Self{
+            address: config.address,
+            pubsub_topics: config.pubsub_topics,
+            metrics_path: config.metrics_path,
+            discovery_interval
+        })
     }
 }
 
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub(crate) struct Addresses {
-    pub(crate) swarm: Option<Vec<Multiaddr>>,
-    pub(crate) announce: Option<Vec<Multiaddr>>,
-}
-
-// impl zeroize::Zeroize for Config {
-//     fn zeroize(&mut self) {
-//         self.identity.peer_id.zeroize();
-//         self.identity.priv_key.zeroize();
-//     }
-// }
 
 /// Peer ID with multiaddress.
 ///

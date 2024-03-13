@@ -91,8 +91,8 @@ impl Behaviour {
             relay_client: relay_client.into(),
             ping: ping::Behaviour::new(ping::Config::new()),
             identify: identify::Behaviour::new(
-                identify::Config::new("ipfs/0.1.0".to_string(), pub_key.clone()).with_agent_version(
-                    format!("rust-libp2p-server/{}", env!("CARGO_PKG_VERSION")),
+                identify::Config::new("token/0.1.0".to_string(), pub_key.clone()).with_agent_version(
+                    format!("p2pserver/{}", env!("CARGO_PKG_VERSION")),
                 ),
             ),
             kademlia,
