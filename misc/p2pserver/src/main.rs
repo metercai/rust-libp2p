@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::thread;
 use tracing_subscriber::EnvFilter;
-use zeroize::Zeroizing;
 use std::env;
 
 mod protocol;
@@ -13,6 +12,7 @@ mod error;
 mod utils;
 mod service;
 mod config;
+mod req_resp;
 
 use crate::service::{Client, EventHandler};
 
@@ -22,7 +22,7 @@ const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 #[clap(name = "p2perver", about = "A rust-libp2p server binary.")]
 struct Opts {
     /// Path to p2pserver config file.
-    #[clap(long, default_value = "../p2pconfig.toml")]
+    #[clap(long, default_value = "p2pconfig.toml")]
     config: PathBuf,
 }
 
@@ -46,6 +46,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Periodically print the node status.
     let client_clone = client.clone();
     thread::spawn(move || get_node_status(client_clone));
+
+    // Periodically send a request to one of the known peers.
+    let client_clone = client.clone();
+    thread::spawn(move || request(client_clone));
 
     // Periodically make a broadcast to the network.
     broadcast(client);
@@ -84,13 +88,33 @@ fn get_node_status(client: Client) {
 }
 
 fn broadcast(client: Client) {
-    let dur = Duration::from_secs(13);
+    let dur = Duration::from_secs(23);
     loop {
         thread::sleep(dur);
         let topic = "block";
         let message = "Hello, a new block!";
         tracing::info!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
         let _ = client.broadcast(topic, message.as_bytes().to_vec());
+    }
+}
+
+fn request(client: Client) {
+    let dur = Duration::from_secs(15);
+    loop {
+        thread::sleep(dur);
+        let known_peers = client.get_known_peers();
+        if known_peers.len() > 0 {
+            let target = &known_peers[0];
+            let request = "Hello, request!";
+            tracing::info!("📣 >>>> Outbound request: {:?}", request);
+            let response = client
+                .blocking_request(target, request.as_bytes().to_vec())
+                .unwrap();
+            tracing::info!(
+                "📣 <<<< Inbound response: {:?}",
+                String::from_utf8_lossy(&response)
+            );
+        }
     }
 }
 

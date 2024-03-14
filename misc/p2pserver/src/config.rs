@@ -10,7 +10,8 @@ pub(crate) struct Config {
     pub(crate) address: Address,
     pub(crate) pubsub_topics: Vec<String>,
     pub(crate) metrics_path: String,
-    pub(crate) discovery_interval: u64
+    pub(crate) discovery_interval: u64,
+    pub(crate) req_resp: ReqRespConfig
 }
 
 #[derive(Clone, Deserialize)]
@@ -19,6 +20,18 @@ pub(crate) struct Address {
     pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>
 }
 
+/// Configuration for the request-response protocol.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ReqRespConfig {
+    /// Connection keep-alive time in seconds.
+    // pub connection_keep_alive: Option<u64>,
+    /// Request timeout in seconds.
+    pub request_timeout: Option<u64>,
+    /// Maximum size of an inbound request.
+    pub max_request_size: Option<usize>,
+    /// Maximum size of an inbound response.
+    pub max_response_size: Option<usize>,
+}
 impl Config {
     pub(crate) fn from_file(path: &Path) -> Result<Self, Box<dyn Error>> {
         let config: Self = toml::from_str(&std::fs::read_to_string(path)?).unwrap();
@@ -31,7 +44,8 @@ impl Config {
             address: config.address,
             pubsub_topics: config.pubsub_topics,
             metrics_path: config.metrics_path,
-            discovery_interval
+            discovery_interval,
+            req_resp: config.req_resp
         })
     }
 }

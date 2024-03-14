@@ -4,6 +4,7 @@ use libp2p::kad;
 use libp2p::ping;
 use libp2p::relay;
 use libp2p::multiaddr::Protocol;
+use libp2p::request_response::{self, OutboundRequestId, ResponseChannel, ProtocolSupport};
 use libp2p::gossipsub::{self, IdentTopic};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, StreamProtocol};
@@ -17,7 +18,8 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-
+use crate::req_resp;
+use crate::config::ReqRespConfig;
 
 const BOOTNODES: [&str; 4] = [
     "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
@@ -27,8 +29,6 @@ const BOOTNODES: [&str; 4] = [
 ];
 
 const TOKEN_PROTO_NAME: StreamProtocol = StreamProtocol::new("/token/kad/1.0.0");
-
-pub(crate) type ResponseType = Result<Vec<u8>, ()>;
 
 #[derive(NetworkBehaviour)]
 pub(crate) struct Behaviour {
@@ -41,6 +41,9 @@ pub(crate) struct Behaviour {
     mdns: Toggle<mdns::tokio::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
     pubsub: gossipsub::Behaviour,
+    // `req_resp` is used for sending requests and responses.
+    req_resp: request_response::Behaviour<req_resp::GenericCodec>,
+
 }
 
 impl Behaviour {
@@ -48,6 +51,7 @@ impl Behaviour {
         local_key: identity::Keypair,
         relay_client: Option<relay::client::Behaviour>,
         pubsub_topics: Vec<String>,
+        req_resp_config: Option<ReqRespConfig>,
     ) -> Self {
         let pub_key = local_key.public();
         let kademlia = {
@@ -100,6 +104,7 @@ impl Behaviour {
             mdns: mdns,
             dcutr: dcutr,
             pubsub: Self::new_gossipsub(local_key, pubsub_topics),
+            req_resp: Self::new_req_resp(req_resp_config),
         }
     }
 
@@ -130,6 +135,27 @@ impl Behaviour {
             gossipsub.subscribe(&topic).expect("Failed to subscribe to topic");
         }
         gossipsub
+    }
+
+    fn new_req_resp(config: Option<ReqRespConfig>) -> request_response::Behaviour<req_resp::GenericCodec> {
+        if let Some(config) = config {
+            return req_resp::BehaviourBuilder::new()
+                //.with_connection_keep_alive(config.connection_keep_alive)
+                .with_request_timeout(config.request_timeout)
+                .with_max_request_size(config.max_request_size)
+                .with_max_response_size(config.max_response_size)
+                .build();
+        }
+
+        req_resp::BehaviourBuilder::default().build()
+    }
+
+    pub fn send_request(&mut self, target: &PeerId, request: Vec<u8>) -> OutboundRequestId {
+        self.req_resp.send_request(target, request)
+    }
+
+    pub fn send_response(&mut self, ch: ResponseChannel<req_resp::ResponseType>, response: req_resp::ResponseType) {
+        let _ = self.req_resp.send_response(ch, response);
     }
 
     pub(crate) fn discover_peers(&mut self) {

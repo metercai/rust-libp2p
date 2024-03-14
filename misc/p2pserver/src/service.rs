@@ -3,7 +3,6 @@ use std::{
         collections::HashMap,
         fmt::Debug,
         error::Error,
-        str::FromStr,
         io,
         net::Ipv4Addr,
         time::Duration };
@@ -20,7 +19,7 @@ use libp2p::{
         metrics::{Metrics, Recorder},
         swarm::SwarmEvent,
         gossipsub::{self, TopicHash},
-        request_response::ResponseChannel,
+        request_response::{self, OutboundFailure, OutboundRequestId, ResponseChannel},
         Swarm, Multiaddr, PeerId,};
 
 use prometheus_client::{metrics::info::Info, registry::Registry};
@@ -28,8 +27,9 @@ use zeroize::Zeroizing;
 
 use crate::{http_service, utils};
 use crate::protocol::*;
-use crate::config::Config;
-
+use crate::req_resp::*;
+use crate::config::*;
+use crate::error::P2pError;
 
 
 
@@ -56,6 +56,21 @@ pub(crate) async fn new<E: EventHandler>(config: Config) -> Result<(Client, Serv
 }
 
 impl Client {
+    /// Send a blocking request to the `target` peer.
+    pub fn blocking_request(&self, target: &str, request: Vec<u8>) -> Result<Vec<u8>, P2pError> {
+        let target = target.parse().map_err(|_| P2pError::InvalidPeerId)?;
+
+        let (responder, receiver) = oneshot::channel();
+        let _ = self.cmd_sender.send(Command::SendRequest {
+            target,
+            request,
+            responder,
+        });
+        receiver
+            .blocking_recv()?
+            .map_err(|_| P2pError::RequestRejected)
+    }
+
     /// Publish a message to the given topic.
     pub(crate) fn broadcast(&self, topic: impl Into<String>, message: Vec<u8>) {
         let _ = self.cmd_sender.send(Command::Broadcast {
@@ -83,6 +98,11 @@ impl Client {
 
 /// The commands sent by the `Client` to the `Server`.
 pub(crate) enum Command {
+    SendRequest {
+        target: PeerId,
+        request: Vec<u8>,
+        responder: oneshot::Sender<ResponseType>,
+    },
     Broadcast {
         topic: String,
         message: Vec<u8>,
@@ -103,6 +123,8 @@ pub(crate) struct Server<E: EventHandler> {
     event_handler: OnceCell<E>,
     /// The ticker to periodically discover new peers.
     discovery_ticker: Interval,
+    /// The pending outbound requests, awaiting for a response from the remote.
+    pending_outbound_requests: HashMap<OutboundRequestId, oneshot::Sender<ResponseType>>,
     /// The topics will be hashed when subscribing to the gossipsub protocol,
     /// but we need to keep the original topic names for broadcasting.
     pubsub_topics: Vec<String>,
@@ -122,6 +144,7 @@ impl<E: EventHandler> Server<E> {
         let announce = config.address.announce;
         let pubsub_topics: Vec<_> = config.pubsub_topics;
         let boot_nodes = config.address.boot_nodes;
+        let req_resp_config = config.req_resp;
 
         let mut swarm = match announce.clone() {
             None => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
@@ -138,7 +161,7 @@ impl<E: EventHandler> Server<E> {
                 .with_relay_client(noise::Config::new, yamux::Config::default)?
                 .with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key, relay_client| {
-                    Behaviour::new(key.clone(), Some(relay_client), pubsub_topics.clone())
+                    Behaviour::new(key.clone(), Some(relay_client), pubsub_topics.clone(), Some(req_resp_config.clone()))
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
                 .build(),
@@ -155,7 +178,7 @@ impl<E: EventHandler> Server<E> {
                 .await?
                 .with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key| {
-                    Behaviour::new(key.clone(), None, pubsub_topics.clone())
+                    Behaviour::new(key.clone(), None, pubsub_topics.clone(), Some(req_resp_config.clone()))
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
                 .build(),
@@ -241,6 +264,7 @@ impl<E: EventHandler> Server<E> {
             cmd_receiver,
             event_handler: OnceCell::new(),
             discovery_ticker,
+            pending_outbound_requests: HashMap::new(),
             pubsub_topics,
             metrics
         })
@@ -279,6 +303,11 @@ impl<E: EventHandler> Server<E> {
     // Process the next command coming from `Client`.
     fn handle_command(&mut self, cmd: Command) {
         match cmd {
+            Command::SendRequest {
+                target,
+                request,
+                responder,
+            } => self.handle_outbound_request(target, request, responder),
             Command::Broadcast { topic, message } => self.handle_outbound_broadcast(topic, message),
             Command::GetStatus(responder) => responder.send(self.get_status()).unwrap(),
         }
@@ -336,6 +365,23 @@ impl<E: EventHandler> Server<E> {
                     self.add_addresses(&peer_id, listen_addrs);
                 }
             } //self.add_addresses(&peer_id, listen_addrs),
+            BehaviourEvent::ReqResp(request_response::Event::Message {
+                message:
+                request_response::Message::Request { request, channel, .. },
+                ..
+            }) => self.handle_inbound_request(request, channel),
+
+            BehaviourEvent::ReqResp(request_response::Event::Message {
+                message:
+                request_response::Message::Response { request_id, response, },
+                ..
+            }) => self.handle_inbound_response(request_id, response),
+
+            BehaviourEvent::ReqResp(request_response::Event::OutboundFailure {
+                request_id,
+                error,
+                ..
+            }) => self.handle_outbound_failure(request_id, error),
 
             _ => {}
         }
@@ -344,11 +390,45 @@ impl<E: EventHandler> Server<E> {
     // Inbound requests are handled by the `EventHandler` which is provided by the application layer.
     fn handle_inbound_request(&mut self, request: Vec<u8>, ch: ResponseChannel<ResponseType>) {
         if let Some(handler) = self.event_handler.get() {
-            let _response = handler.handle_inbound_request(request).map_err(|_| ());
-            // self.network_service.behaviour_mut().send_response(ch, response);
+            let response = handler.handle_inbound_request(request).map_err(|_| ());
+            self.network_service.behaviour_mut().send_response(ch, response);
         }
     }
 
+    // Store the request_id with the responder so that we can send the response later.
+    fn handle_outbound_request(
+        &mut self,
+        target: PeerId,
+        request: Vec<u8>,
+        responder: oneshot::Sender<ResponseType>,
+    ) {
+        let req_id = self
+            .network_service
+            .behaviour_mut()
+            .send_request(&target, request);
+        self.pending_outbound_requests.insert(req_id, responder);
+    }
+
+    // An outbound request failed, notify the application layer.
+    fn handle_outbound_failure(&mut self, request_id: OutboundRequestId, error: OutboundFailure) {
+        if let Some(responder) = self.pending_outbound_requests.remove(&request_id) {
+            tracing::error!("❌ Outbound request failed: {:?}", error);
+            let _ = responder.send(Err(()));
+        } else {
+            tracing::warn!("❗ Received failure for unknown request: {}", request_id);
+            debug_assert!(false);
+        }
+    }
+
+    // An inbound response was received, notify the application layer.
+    fn handle_inbound_response(&mut self, request_id: OutboundRequestId, response: ResponseType) {
+        if let Some(responder) = self.pending_outbound_requests.remove(&request_id) {
+            let _ = responder.send(response);
+        } else {
+            tracing::warn!("❗ Received response for unknown request: {}", request_id);
+            debug_assert!(false);
+        }
+    }
 
     // Inbound broadcasts are handled by the `EventHandler` which is provided by the application layer.
     fn handle_inbound_broadcast(&mut self, message: gossipsub::Message) {
