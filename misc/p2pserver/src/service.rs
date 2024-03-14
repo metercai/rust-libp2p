@@ -32,6 +32,8 @@ use crate::config::*;
 use crate::error::P2pError;
 
 
+const TOKEN_SERVER_IPADDR: &str = "0.0.0.0";
+const TOKEN_SERVER_PORT: u16 = 2316;
 
 /// `EventHandler` is the trait that defines how to handle requests / broadcast-messages from remote peers.
 pub(crate) trait EventHandler: Debug + Send + 'static {
@@ -185,7 +187,7 @@ impl<E: EventHandler> Server<E> {
         };
 
         let expected_listener_id = swarm
-            .listen_on(Multiaddr::empty().with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED)).with(Protocol::Tcp(0)))?;
+            .listen_on(Multiaddr::empty().with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED)).with(Protocol::Tcp(TOKEN_SERVER_PORT)))?;
         let mut listen_addresses = 0;
         while listen_addresses < 2 {
             if let SwarmEvent::NewListenAddr {
