@@ -51,11 +51,11 @@ impl Behaviour {
     ) -> Self {
         let pub_key = local_key.public();
         let kademlia = {
-            let mut kademlia_config = kad::Config::new(TOKEN_PROTO_NAME);
+            let kademlia_config = kad::Config::new(TOKEN_PROTO_NAME);
             // Instantly remove records and provider records.
             // kademlia_config.set_record_ttl(Some(Duration::from_secs(0)));
             // kademlia_config.set_provider_record_ttl(Some(Duration::from_secs(0)));
-            let mut kademlia = kad::Behaviour::with_config(
+            let kademlia = kad::Behaviour::with_config(
                 pub_key.to_peer_id(),
                 kad::store::MemoryStore::new(pub_key.to_peer_id()),
                 kademlia_config,
@@ -132,7 +132,7 @@ impl Behaviour {
         gossipsub
     }
 
-    pub fn discover_peers(&mut self) {
+    pub(crate) fn discover_peers(&mut self) {
         if self.known_peers().is_empty() {
             tracing::debug!("☕ Discovery process paused due to no boot node");
         } else {
@@ -145,7 +145,7 @@ impl Behaviour {
         }
     }
 
-    pub fn known_peers(&mut self) -> HashMap<PeerId, Vec<Multiaddr>> {
+    pub(crate) fn known_peers(&mut self) -> HashMap<PeerId, Vec<Multiaddr>> {
         let mut peers = HashMap::new();
         for b in self.kademlia.kbuckets() {
             for e in b.iter() {
@@ -154,21 +154,21 @@ impl Behaviour {
         }
         peers
     }
-    pub fn broadcast(&mut self, topic: String, message: Vec<u8>) -> Result<(), Box<dyn Error>> {
+    pub(crate) fn broadcast(&mut self, topic: String, message: Vec<u8>) -> Result<(), Box<dyn Error>> {
         let topic = gossipsub::IdentTopic::new(topic);
         self.pubsub.publish(topic, message)?;
 
         Ok(())
     }
 
-    pub fn add_address(&mut self, peer_id: &PeerId, addr: Multiaddr) {
+    pub(crate) fn add_address(&mut self, peer_id: &PeerId, addr: Multiaddr) {
         if can_add_to_dht(&addr) {
             tracing::debug!("☕ Adding address {} from {:?} to the DHT.", addr, peer_id);
             self.kademlia.add_address(peer_id, addr);
         }
     }
 
-    pub fn remove_peer(&mut self, peer_id: &PeerId) {
+    pub(crate) fn remove_peer(&mut self, peer_id: &PeerId) {
         tracing::debug!("☕ Removing peer {} from the DHT.", peer_id);
         self.kademlia.remove_peer(peer_id);
     }

@@ -25,7 +25,6 @@ use libp2p::{
 
 use prometheus_client::{metrics::info::Info, registry::Registry};
 use zeroize::Zeroizing;
-use base64::Engine;
 
 use crate::{http_service, utils};
 use crate::protocol::*;
@@ -35,7 +34,7 @@ use crate::config::Config;
 
 
 /// `EventHandler` is the trait that defines how to handle requests / broadcast-messages from remote peers.
-pub trait EventHandler: Debug + Send + 'static {
+pub(crate) trait EventHandler: Debug + Send + 'static {
     /// Handles an inbound request from a remote peer.
     fn handle_inbound_request(&self, request: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>>;
     /// Handles an broadcast message from a remote peer.
@@ -43,12 +42,12 @@ pub trait EventHandler: Debug + Send + 'static {
 }
 
 #[derive(Clone, Debug)]
-pub struct Client {
+pub(crate) struct Client {
     cmd_sender: UnboundedSender<Command>,
 }
 
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
-pub async fn new<E: EventHandler>(config: Config) -> Result<(Client, Server<E>), Box<dyn Error>> {
+pub(crate) async fn new<E: EventHandler>(config: Config) -> Result<(Client, Server<E>), Box<dyn Error>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
     let server = Server::new(config, cmd_receiver).await?;
     let client = Client { cmd_sender };
@@ -58,7 +57,7 @@ pub async fn new<E: EventHandler>(config: Config) -> Result<(Client, Server<E>),
 
 impl Client {
     /// Publish a message to the given topic.
-    pub fn broadcast(&self, topic: impl Into<String>, message: Vec<u8>) {
+    pub(crate) fn broadcast(&self, topic: impl Into<String>, message: Vec<u8>) {
         let _ = self.cmd_sender.send(Command::Broadcast {
             topic: topic.into(),
             message,
@@ -66,7 +65,7 @@ impl Client {
     }
 
     /// Get known peers of the node.
-    pub fn get_known_peers(&self) -> Vec<String> {
+    pub(crate) fn get_known_peers(&self) -> Vec<String> {
         self.get_node_status()
             .known_peers
             .into_keys()
@@ -75,7 +74,7 @@ impl Client {
     }
 
     /// Get status of the node for debugging.
-    pub fn get_node_status(&self) -> NodeStatus {
+    pub(crate) fn get_node_status(&self) -> NodeStatus {
         let (responder, receiver) = oneshot::channel();
         let _ = self.cmd_sender.send(Command::GetStatus(responder));
         receiver.blocking_recv().unwrap_or_default()
@@ -83,7 +82,7 @@ impl Client {
 }
 
 /// The commands sent by the `Client` to the `Server`.
-pub enum Command {
+pub(crate) enum Command {
     Broadcast {
         topic: String,
         message: Vec<u8>,
@@ -91,7 +90,7 @@ pub enum Command {
     GetStatus(oneshot::Sender<NodeStatus>),
 }
 
-pub struct Server<E: EventHandler> {
+pub(crate) struct Server<E: EventHandler> {
     /// The actual network service.
     network_service: Swarm<Behaviour>,
     /// The local peer id.
@@ -112,7 +111,7 @@ pub struct Server<E: EventHandler> {
 
 impl<E: EventHandler> Server<E> {
     /// Create a new `Server`.
-    pub async fn new(
+    pub(crate) async fn new(
         config: Config,
         cmd_receiver: UnboundedReceiver<Command>,
     ) -> Result<Self, Box<dyn Error>> {
@@ -125,7 +124,7 @@ impl<E: EventHandler> Server<E> {
         let boot_nodes = config.address.boot_nodes;
 
         let mut swarm = match announce.clone() {
-            Some(announce) => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
+            None => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
                     tcp::Config::default().port_reuse(true).nodelay(true),
@@ -143,7 +142,7 @@ impl<E: EventHandler> Server<E> {
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
                 .build(),
-            None => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
+            Some(_announce) => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
                     tcp::Config::default().port_reuse(true).nodelay(true),
@@ -177,10 +176,6 @@ impl<E: EventHandler> Server<E> {
                 tracing::info!("P2PServer Listening on {address}");
             }
         }
-        let listen_addrs = swarm.listeners();
-        for addr in listen_addrs {
-            tracing::info!("P2PServer start up: {}/p2p/{}", addr, swarm.local_peer_id());
-        }
 
         let relay_addr = match boot_nodes {
             Some(boot_nodes) => {
@@ -210,6 +205,10 @@ impl<E: EventHandler> Server<E> {
                 tracing::info!("External addresses: {:?}", announce)
             }
             None => tracing::warn!("No external addresses configured")
+        }
+        let listen_addrs = swarm.listeners();
+        for addr in listen_addrs {
+            tracing::info!("P2PServer start up: {}/p2p/{}", addr, swarm.local_peer_id());
         }
 
         swarm.behaviour_mut().discover_peers();
@@ -248,12 +247,12 @@ impl<E: EventHandler> Server<E> {
     }
 
     /// Set the handler of events from remote peers.
-    pub fn set_event_handler(&mut self, handler: E) {
+    pub(crate) fn set_event_handler(&mut self, handler: E) {
         self.event_handler.set(handler).unwrap();
     }
 
     /// Run the `Server`.
-    pub async fn run(mut self) {
+    pub(crate) async fn run(mut self) {
         loop {
             select! {
                 // Next discovery process.
@@ -345,7 +344,7 @@ impl<E: EventHandler> Server<E> {
     // Inbound requests are handled by the `EventHandler` which is provided by the application layer.
     fn handle_inbound_request(&mut self, request: Vec<u8>, ch: ResponseChannel<ResponseType>) {
         if let Some(handler) = self.event_handler.get() {
-            let response = handler.handle_inbound_request(request).map_err(|_| ());
+            let _response = handler.handle_inbound_request(request).map_err(|_| ());
             // self.network_service.behaviour_mut().send_response(ch, response);
         }
     }
@@ -429,9 +428,9 @@ impl<E: EventHandler> Server<E> {
 
 /// The node status, for debugging.
 #[derive(Clone, Debug, Default)]
-pub struct NodeStatus {
-    pub local_peer_id: String,
-    pub listened_addresses: Vec<Multiaddr>,
-    pub known_peers_count: usize,
-    pub known_peers: HashMap<PeerId, Vec<Multiaddr>>,
+pub(crate) struct NodeStatus {
+    pub(crate) local_peer_id: String,
+    pub(crate) listened_addresses: Vec<Multiaddr>,
+    pub(crate) known_peers_count: usize,
+    pub(crate) known_peers: HashMap<PeerId, Vec<Multiaddr>>,
 }

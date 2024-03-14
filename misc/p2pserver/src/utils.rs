@@ -2,9 +2,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::env;
 use std::path::Path;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::{fmt, str::FromStr};
-
+use std::net::IpAddr;
 
 use openssl::pkey::PKey;
 use openssl::symm::Cipher;
@@ -12,7 +10,7 @@ use sysinfo::System;
 use systemstat::{System as SystemStat, Platform, data};
 
 
-pub fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut sys = System::new_all();
     sys.refresh_all();
 
@@ -20,14 +18,14 @@ pub fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>>
     let cpu = sys.cpus().get(0).unwrap();
     let password = format!("{}@{}/{}/{}/{}/{}/{}/{}", exe_path.display(), System::host_name().unwrap(),
         System::distribution_id(), System::name().unwrap(), cpu.brand(),sys.cpus().len(), cpu.frequency(), sys.total_memory()/(1024*1024*1024));
-    println!("password: {password}");
+    tracing::info!("password: {password}");
 
     let file_path = Path::new(".token_user.pem");
     let private_key = match file_path.exists() {
         false => {
             let private_key = PKey::generate_ed25519()?;
-            println!("create: private_key_bytes: {:?}", private_key);
-            println!("create: private_key_der: {:?}", private_key.raw_private_key()?);
+            tracing::info!("create: private_key_bytes: {:?}", private_key);
+            tracing::info!("create: private_key_der: {:?}", private_key.raw_private_key()?);
             let pem_key = private_key.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), password.as_bytes())?;
             let mut file = File::create(file_path)?;
             file.write_all(&pem_key)?;
@@ -38,8 +36,8 @@ pub fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>>
             let mut key_data = Vec::new();
             file.read_to_end(&mut key_data)?;
             let private_key = PKey::private_key_from_pem_passphrase(&key_data, password.as_bytes())?;
-            println!("read: private_key_bytes: {:?}", private_key);
-            println!("read: private_key_der: {:?}", private_key.raw_private_key()?);
+            tracing::info!("read: private_key_bytes: {:?}", private_key);
+            tracing::info!("read: private_key_der: {:?}", private_key.raw_private_key()?);
             private_key.raw_private_key()?
         }
     };
@@ -47,7 +45,7 @@ pub fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>>
     Ok(private_key)
 }
 
-pub fn get_local_ipaddr() -> Result<Vec<IpAddr>, Box<dyn std::error::Error>> {
+pub(crate) fn get_local_ipaddr() -> Result<Vec<IpAddr>, Box<dyn std::error::Error>> {
     let sys_stat = SystemStat::new();
     let mut ipaddrs: Vec<IpAddr> = Vec::new();
     match sys_stat.networks() {
@@ -59,7 +57,7 @@ pub fn get_local_ipaddr() -> Result<Vec<IpAddr>, Box<dyn std::error::Error>> {
                         data::IpAddr::V4(ipv4) => {
                             if ipv4.is_private() && !netif.name.starts_with("bridge") && !netif.name.starts_with("docker") {
                                 ipaddrs.push(IpAddr::V4(ipv4));
-                                println!("Networks: {} ({:?})", netif.name, ipv4);
+                                tracing::info!("Networks: {} ({:?})", netif.name, ipv4);
                             }
                         }
                         _ => {}
@@ -67,7 +65,7 @@ pub fn get_local_ipaddr() -> Result<Vec<IpAddr>, Box<dyn std::error::Error>> {
                 }
             }
         }
-        Err(x) => println!("\nNetworks: error: {}", x)
+        Err(x) => tracing::info!("\nNetworks: error: {}", x)
     };
     Ok(ipaddrs)
 }

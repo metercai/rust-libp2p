@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::error::Error;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::{fmt, str::FromStr};
 use crate::error::P2pError;
 use libp2p::{multiaddr, Multiaddr, PeerId};

@@ -5,8 +5,6 @@ use std::time::Duration;
 use std::thread;
 use tracing_subscriber::EnvFilter;
 use zeroize::Zeroizing;
-use libp2p::identity::{ed25519::SecretKey, Keypair};
-use std::collections::HashMap;
 use std::env;
 
 mod protocol;
@@ -36,10 +34,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .try_init();
 
     let opt = Opts::parse();
-    let key_bytes = utils::read_key_or_generate_key()?;
-    println!("local key bytes: {:?}",key_bytes);
-    let key = SecretKey::try_from_bytes(key_bytes)?;
-    println!("local key: {:?}",key);
 
     let config = config::Config::from_file(opt.config.as_path())?;
 
