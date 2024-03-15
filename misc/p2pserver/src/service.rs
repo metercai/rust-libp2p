@@ -5,7 +5,7 @@ use std::{
         error::Error,
         str::FromStr,
         io,
-        net::Ipv4Addr,
+        net::{Ipv4Addr, IpAddr},
         time::Duration };
 use tokio::{
         select,
@@ -186,11 +186,14 @@ impl<E: EventHandler> Server<E> {
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
                 .build(),
         };
-
+        let ip_addrs = utils::get_local_ipaddr()?;
         let expected_listener_id = swarm
-            .listen_on(Multiaddr::empty().with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED)).with(Protocol::Tcp(TOKEN_SERVER_PORT)))?;
+            .listen_on(Multiaddr::empty().with(Protocol::Ip4(ip_addrs[0])).with(Protocol::Tcp(TOKEN_SERVER_PORT)))?;
+        tracing::info!("P2PServer listening on listener ID: {}", expected_listener_id);
+
+
         let mut listen_addresses = 0;
-        while listen_addresses < 2 {
+        while listen_addresses < 1 {
             if let SwarmEvent::NewListenAddr {
                 listener_id,
                 address,
@@ -199,7 +202,7 @@ impl<E: EventHandler> Server<E> {
                 if listener_id == expected_listener_id {
                     listen_addresses += 1;
                 }
-                tracing::info!("P2PServer Listening on {address}");
+                tracing::info!("P2PServer ListenerId:{listener_id} Listening on {address} ");
             }
         }
 

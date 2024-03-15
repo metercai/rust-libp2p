@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::env;
 use std::path::Path;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 
 use openssl::pkey::PKey;
 use openssl::symm::Cipher;
@@ -24,8 +24,6 @@ pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::
     let private_key = match file_path.exists() {
         false => {
             let private_key = PKey::generate_ed25519()?;
-            tracing::info!("create: private_key_bytes: {:?}", private_key);
-            tracing::info!("create: private_key_der: {:?}", private_key.raw_private_key()?);
             let pem_key = private_key.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), password.as_bytes())?;
             let mut file = File::create(file_path)?;
             file.write_all(&pem_key)?;
@@ -36,8 +34,6 @@ pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::
             let mut key_data = Vec::new();
             file.read_to_end(&mut key_data)?;
             let private_key = PKey::private_key_from_pem_passphrase(&key_data, password.as_bytes())?;
-            tracing::info!("read: private_key_bytes: {:?}", private_key);
-            tracing::info!("read: private_key_der: {:?}", private_key.raw_private_key()?);
             private_key.raw_private_key()?
         }
     };
@@ -45,9 +41,9 @@ pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::
     Ok(private_key)
 }
 
-pub(crate) fn get_local_ipaddr() -> Result<Vec<IpAddr>, Box<dyn std::error::Error>> {
+pub(crate) fn get_local_ipaddr() -> Result<Vec<Ipv4Addr>, Box<dyn std::error::Error>> {
     let sys_stat = SystemStat::new();
-    let mut ipaddrs: Vec<IpAddr> = Vec::new();
+    let mut ipaddrs: Vec<Ipv4Addr> = Vec::new();
     match sys_stat.networks() {
         Ok(netifs) => {
             for netif in netifs.values() {
@@ -56,7 +52,7 @@ pub(crate) fn get_local_ipaddr() -> Result<Vec<IpAddr>, Box<dyn std::error::Erro
                     match addr.addr {
                         data::IpAddr::V4(ipv4) => {
                             if ipv4.is_private() && !netif.name.starts_with("bridge") && !netif.name.starts_with("docker") {
-                                ipaddrs.push(IpAddr::V4(ipv4));
+                                ipaddrs.push(ipv4);
                                 tracing::info!("Networks: {} ({:?})", netif.name, ipv4);
                             }
                         }

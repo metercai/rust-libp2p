@@ -21,11 +21,9 @@ use std::{
 use crate::req_resp;
 use crate::config::ReqRespConfig;
 
-const BOOTNODES: [&str; 4] = [
-    "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
-    "QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
-    "QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
-    "QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+const BOOTNODES: [&str; 2] = [
+    "12D3KooWLjiAR9qyTBJwWgQAv3f4zaKW9iCTdQbm7skDLNa9st37",
+    "12D3KooWCXCFdxdpBeXvzMgBGxyz9uD2GwYErsEsuTKxwaks7HCD",
 ];
 
 const TOKEN_PROTO_NAME: StreamProtocol = StreamProtocol::new("/token/kad/1.0.0");
@@ -163,7 +161,7 @@ impl Behaviour {
             tracing::debug!("☕ Discovery process paused due to no boot node");
         } else {
             tracing::debug!("☕ Starting a discovery process");
-            let bootaddr = Multiaddr::from_str("/dnsaddr/bootstrap.token.tm").unwrap();
+            let bootaddr = Multiaddr::from_str("/dnsaddr/bootstrap.token.tm/tcp/2316").unwrap();
             for peer in &BOOTNODES {
                 self.kademlia.add_address(&PeerId::from_str(peer).unwrap(), bootaddr.clone());
             }

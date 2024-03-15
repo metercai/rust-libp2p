@@ -92,7 +92,7 @@ pub struct GenericProtocol;
 
 impl AsRef<str> for GenericProtocol {
     fn as_ref(&self) -> &str {
-        "/tinyp2p/req-resp/1.0.0"
+        "/token/req-resp/1.0.0"
     }
 }
 
