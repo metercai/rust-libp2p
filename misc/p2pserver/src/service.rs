@@ -198,7 +198,7 @@ impl<E: EventHandler> Server<E> {
 
 
         let mut listen_addresses = 0;
-        while listen_addresses < 1 {
+        while listen_addresses < 2 {
             if let SwarmEvent::NewListenAddr {
                 listener_id,
                 address,
