@@ -3,6 +3,7 @@ use std::{
         collections::HashMap,
         fmt::Debug,
         error::Error,
+        str::FromStr,
         io,
         net::Ipv4Addr,
         time::Duration };
@@ -207,17 +208,18 @@ impl<E: EventHandler> Server<E> {
                 let boot_nodes_clone = boot_nodes.clone();
                 for boot_node in boot_nodes.into_iter() {
                     swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address());
+                    tracing::info!("P2PServer boot_nodes: {boot_node}");
                     // swarm.behaviour_mut().auto_nat.add_server(&boot_node.peer_id(), boot_node.address());
                 };
-                Some(boot_nodes_clone[0].address())
+                Some(Multiaddr::from_str(format!("{}/p2p/{}", boot_nodes_clone[0].address(), boot_nodes_clone[0].peer_id()).as_str())?)
             }
             None => { None }
         };
-
         match relay_addr {
             Some(relay_addr) => {
+                tracing::info!("P2PServer relay_addr: {:?}", relay_addr);
                 let id = swarm.listen_on(relay_addr.with(Protocol::P2pCircuit))?;
-                tracing::info!("p2pserver listen relay address listenerid: {:?}", id);
+                tracing::info!("P2PServer listenerid for relay: {:?}", id);
             }
             None => {}
         }
