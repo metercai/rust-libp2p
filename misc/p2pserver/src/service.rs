@@ -193,7 +193,7 @@ impl<E: EventHandler> Server<E> {
             ip_addrs[0]
         };
         let expected_listener_id = swarm
-            .listen_on(Multiaddr::empty().with(Protocol::Ip4(ip_addr)).with(Protocol::Tcp(TOKEN_SERVER_PORT)))?;
+            .listen_on(Multiaddr::empty().with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED)).with(Protocol::Tcp(TOKEN_SERVER_PORT)))?;
         tracing::info!("P2PServer listening on listener ID: {}", expected_listener_id);
 
 
