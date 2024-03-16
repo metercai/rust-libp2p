@@ -5,7 +5,8 @@ use std::time::Duration;
 use std::thread;
 use tracing_subscriber::EnvFilter;
 use std::env;
-
+use chrono::{Local, DateTime};
+use tokio::time;
 mod protocol;
 mod http_service;
 mod error;
@@ -45,11 +46,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Periodically print the node status.
     let client_clone = client.clone();
-    thread::spawn(move || get_node_status(client_clone));
+    tokio::task::spawn(get_node_status(client_clone));
 
     // Periodically send a request to one of the known peers.
     let client_clone = client.clone();
-    thread::spawn(move || request(client_clone));
+    tokio::task::spawn(request(client_clone));
 
     // Periodically make a broadcast to the network.
     broadcast(client);
@@ -78,12 +79,14 @@ impl EventHandler for Handler {
     }
 }
 
-fn get_node_status(client: Client) {
-    let dur = Duration::from_secs(17);
+async fn get_node_status(client: Client) {
+    let dur = time::Duration::from_secs(27);
     loop {
-        thread::sleep(dur);
-        let node_status = client.get_node_status();
-        tracing::info!("📣 Node status: {:?}", node_status);
+        time::sleep(dur).await;
+        let node_status = client.get_node_status().await;
+        let short_id = client.get_peer_id();
+        let now_time = Local::now().format("%H:%M:%S").to_string();
+        tracing::info!("📣 Node({}) status: {:?}", short_id, node_status);
     }
 }
 
@@ -91,27 +94,34 @@ fn broadcast(client: Client) {
     let dur = Duration::from_secs(23);
     loop {
         thread::sleep(dur);
-        let topic = "block";
-        let message = "Hello, a new block!";
+        let topic = "blocks";
+        let short_id = client.get_peer_id();
+        let now_time = Local::now().format("%H:%M:%S").to_string();
+        let message = format!("Hello, a new block from {} at {}!", short_id, now_time);
+
         tracing::info!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
         let _ = client.broadcast(topic, message.as_bytes().to_vec());
     }
 }
 
-fn request(client: Client) {
-    let dur = Duration::from_secs(15);
+async fn request(client: Client) {
+    let dur = time::Duration::from_secs(35);
     loop {
-        thread::sleep(dur);
-        let known_peers = client.get_known_peers();
+        time::sleep(dur).await;
+        let known_peers = client.get_known_peers().await;
         if known_peers.len() > 0 {
             let target = &known_peers[0];
-            let request = "Hello, request!";
+            let short_id = client.get_peer_id();
+            let now_time = Local::now().format("%H:%M:%S").to_string();
+            let request = format!("Hello, request from {} at {}!", short_id, now_time);
+
             tracing::info!("📣 >>>> Outbound request: {:?}", request);
             let response = client
-                .blocking_request(target, request.as_bytes().to_vec())
+                .request(target, request.as_bytes().to_vec()).await
                 .unwrap();
+            let now_time2 = Local::now().format("%H:%M:%S").to_string();
             tracing::info!(
-                "📣 <<<< Inbound response: {:?}",
+                "📣 <<<< Inbound response: Time({}) {:?}", now_time2,
                 String::from_utf8_lossy(&response)
             );
         }

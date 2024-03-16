@@ -16,7 +16,7 @@ use libp2p::{
         kad, tcp, identify, noise, yamux, ping,
         core::multiaddr::Protocol,
         identity::{Keypair, ed25519},
-        futures::StreamExt,
+        futures::{StreamExt, FutureExt},
         metrics::{Metrics, Recorder},
         swarm::SwarmEvent,
         gossipsub::{self, TopicHash},
@@ -47,20 +47,29 @@ pub(crate) trait EventHandler: Debug + Send + 'static {
 #[derive(Clone, Debug)]
 pub(crate) struct Client {
     cmd_sender: UnboundedSender<Command>,
+    peer_id: String,
 }
 
 /// Create a new p2p node, which consists of a `Client` and a `Server`.
 pub(crate) async fn new<E: EventHandler>(config: Config) -> Result<(Client, Server<E>), Box<dyn Error>> {
     let (cmd_sender, cmd_receiver) = mpsc::unbounded_channel();
     let server = Server::new(config, cmd_receiver).await?;
-    let client = Client { cmd_sender };
+    let local_peer_id = server.get_peer_id().to_base58();
+    let client = Client {
+        cmd_sender,
+        peer_id: local_peer_id[local_peer_id.len() - 7..].to_string(),
+    };
 
     Ok((client, server))
 }
 
 impl Client {
+    /// Get the short peer id of the local node.
+    pub fn get_peer_id(&self) -> String {
+        self.peer_id.clone()
+    }
     /// Send a blocking request to the `target` peer.
-    pub fn blocking_request(&self, target: &str, request: Vec<u8>) -> Result<Vec<u8>, P2pError> {
+    pub async fn request(&self, target: &str, request: Vec<u8>) -> Result<Vec<u8>, P2pError> {
         let target = target.parse().map_err(|_| P2pError::InvalidPeerId)?;
 
         let (responder, receiver) = oneshot::channel();
@@ -69,13 +78,13 @@ impl Client {
             request,
             responder,
         });
-        receiver
-            .blocking_recv()?
-            .map_err(|_| P2pError::RequestRejected)
+
+        let response = receiver.await.map_err(|_| P2pError::RequestRejected)?;
+        Ok(response?)
     }
 
     /// Publish a message to the given topic.
-    pub(crate) fn broadcast(&self, topic: impl Into<String>, message: Vec<u8>) {
+    pub(crate) async fn broadcast(&self, topic: impl Into<String>, message: Vec<u8>) {
         let _ = self.cmd_sender.send(Command::Broadcast {
             topic: topic.into(),
             message,
@@ -83,8 +92,8 @@ impl Client {
     }
 
     /// Get known peers of the node.
-    pub(crate) fn get_known_peers(&self) -> Vec<String> {
-        self.get_node_status()
+    pub(crate) async fn get_known_peers(&self) -> Vec<String> {
+        self.get_node_status().await
             .known_peers
             .into_keys()
             .map(|id| id.to_base58())
@@ -92,10 +101,16 @@ impl Client {
     }
 
     /// Get status of the node for debugging.
-    pub(crate) fn get_node_status(&self) -> NodeStatus {
+    // pub(crate) fn get_node_status(&self) -> NodeStatus {
+    //     let (responder, receiver) = oneshot::channel();
+    //     let _ = self.cmd_sender.send(Command::GetStatus(responder));
+    //     receiver.blocking_recv().unwrap_or_default()
+    // }
+
+    pub async fn get_node_status(&self) -> NodeStatus {
         let (responder, receiver) = oneshot::channel();
         let _ = self.cmd_sender.send(Command::GetStatus(responder));
-        receiver.blocking_recv().unwrap_or_default()
+        receiver.await.unwrap_or_default()
     }
 }
 
@@ -480,6 +495,10 @@ impl<E: EventHandler> Server<E> {
             known_peers_count: known_peers.len(),
             known_peers,
         }
+    }
+
+    fn get_peer_id(&self) -> PeerId {
+        self.local_peer_id.clone()
     }
 
     fn update_listened_addresses(&mut self) {

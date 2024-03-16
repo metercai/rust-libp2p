@@ -1,5 +1,5 @@
 use std::io;
-
+use std::fmt;
 use libp2p::{gossipsub, multiaddr, swarm, TransportError};
 use tokio::sync::oneshot;
 
@@ -25,4 +25,13 @@ pub enum P2pError {
     SubscribeError(#[from] gossipsub::SubscriptionError),
     #[error(transparent)]
     PublishError(#[from] gossipsub::PublishError),
+    #[error("Unknown error")]
+    Unknown,
 }
+
+impl From<()> for P2pError {
+    fn from(_: ()) -> Self {
+        P2pError::Unknown
+    }
+}
+
