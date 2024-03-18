@@ -35,7 +35,7 @@ pub(crate) struct Behaviour {
     ping: ping::Behaviour,
     identify: identify::Behaviour,
     pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    // autonat: autonat::Behaviour,
+    autonat: autonat::Behaviour,
     mdns: Toggle<mdns::tokio::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
     pubsub: gossipsub::Behaviour,
@@ -98,7 +98,7 @@ impl Behaviour {
                 ),
             ),
             kademlia,
-            // autonat: autonat::Behaviour::new(PeerId::from(pub_key.clone()), Default::default()),
+            autonat: autonat::Behaviour::new(PeerId::from(pub_key.clone()), Default::default()),
             mdns: mdns,
             dcutr: dcutr,
             pubsub: Self::new_gossipsub(local_key, pubsub_topics),
@@ -161,9 +161,9 @@ impl Behaviour {
 
     pub(crate) fn discover_peers(&mut self) {
         if self.known_peers().is_empty() {
-            tracing::debug!("☕ Discovery process paused due to no boot node");
+            tracing::info!("☕ Discovery process paused due to no boot node");
         } else {
-            tracing::debug!("☕ Starting a discovery process");
+            tracing::info!("☕ Starting a discovery process");
             let bootaddr = Multiaddr::from_str("/dnsaddr/bootstrap.token.tm/tcp/2316").unwrap();
             for peer in &BOOTNODES {
             //    self.kademlia.add_address(&PeerId::from_str(peer).unwrap(), bootaddr.clone());
@@ -190,13 +190,13 @@ impl Behaviour {
 
     pub(crate) fn add_address(&mut self, peer_id: &PeerId, addr: Multiaddr) {
         if can_add_to_dht(&addr) {
-            tracing::debug!("☕ Adding address {} from {:?} to the DHT.", addr, peer_id);
+            tracing::info!("☕ Adding address {} from {:?} to the DHT.", addr, peer_id);
             self.kademlia.add_address(peer_id, addr);
         }
     }
 
     pub(crate) fn remove_peer(&mut self, peer_id: &PeerId) {
-        tracing::debug!("☕ Removing peer {} from the DHT.", peer_id);
+        tracing::info!("☕ Removing peer {} from the DHT.", peer_id);
         self.kademlia.remove_peer(peer_id);
     }
 

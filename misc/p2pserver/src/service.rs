@@ -258,7 +258,10 @@ impl<E: EventHandler> Server<E> {
         for addr in listen_addrs {
             tracing::info!("P2PServer start up: {}/p2p/{}", addr, swarm.local_peer_id());
         }
-
+        swarm
+            .behaviour_mut()
+            .kademlia
+            .set_mode(Some(kad::Mode::Server));
         swarm.behaviour_mut().discover_peers();
 
         let metrics = Metrics::new(&mut metric_registry);
