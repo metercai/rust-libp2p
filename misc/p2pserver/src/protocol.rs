@@ -35,7 +35,7 @@ pub(crate) struct Behaviour {
     ping: ping::Behaviour,
     identify: identify::Behaviour,
     pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    autonat: autonat::Behaviour,
+    // autonat: autonat::Behaviour,
     mdns: Toggle<mdns::tokio::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
     pubsub: gossipsub::Behaviour,
@@ -91,14 +91,14 @@ impl Behaviour {
         Self {
             relay,
             relay_client: relay_client.into(),
-            ping: ping::Behaviour::new(ping::Config::new()),
+            ping: ping::Behaviour::new(ping::Config::default().with_interval(Duration::from_secs(15))),
             identify: identify::Behaviour::new(
                 identify::Config::new("token/0.1.0".to_string(), pub_key.clone()).with_agent_version(
                     format!("p2pserver/{}", env!("CARGO_PKG_VERSION")),
                 ),
             ),
             kademlia,
-            autonat: autonat::Behaviour::new(PeerId::from(pub_key.clone()), Default::default()),
+            // autonat: autonat::Behaviour::new(PeerId::from(pub_key.clone()), Default::default()),
             mdns: mdns,
             dcutr: dcutr,
             pubsub: Self::new_gossipsub(local_key, pubsub_topics),
@@ -163,7 +163,7 @@ impl Behaviour {
             tracing::debug!("☕ Starting a discovery process");
             let bootaddr = Multiaddr::from_str("/dnsaddr/bootstrap.token.tm/tcp/2316").unwrap();
             for peer in &BOOTNODES {
-                self.kademlia.add_address(&PeerId::from_str(peer).unwrap(), bootaddr.clone());
+            //    self.kademlia.add_address(&PeerId::from_str(peer).unwrap(), bootaddr.clone());
             }
             let _ = self.kademlia.bootstrap();
         }

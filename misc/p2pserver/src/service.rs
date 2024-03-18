@@ -174,8 +174,6 @@ impl<E: EventHandler> Server<E> {
                 )?
                 .with_quic()
                 .with_dns()?
-                .with_websocket(noise::Config::new, yamux::Config::default)
-                .await?
                 .with_relay_client(noise::Config::new, yamux::Config::default)?
                 .with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key, relay_client| {
@@ -192,8 +190,6 @@ impl<E: EventHandler> Server<E> {
                 )?
                 .with_quic()
                 .with_dns()?
-                .with_websocket(noise::Config::new, yamux::Config::default)
-                .await?
                 .with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key| {
                     Behaviour::new(key.clone(), None, pubsub_topics.clone(), Some(req_resp_config.clone()))
@@ -207,24 +203,27 @@ impl<E: EventHandler> Server<E> {
         } else {
             ip_addrs[0]
         };
+        let listen_ip: Multiaddr = config.address.listen;
+        tracing::info!("P2PServer listen_ip: {}", listen_ip);
         let expected_listener_id = swarm
-            .listen_on(Multiaddr::empty().with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED)).with(Protocol::Tcp(TOKEN_SERVER_PORT)))?;
+            .listen_on(listen_ip.clone().with(Protocol::Tcp(TOKEN_SERVER_PORT)))?;
+        //.listen_on(Multiaddr::empty().with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED)).with(Protocol::Tcp(TOKEN_SERVER_PORT)))?;
         tracing::info!("P2PServer listening on listener ID: {}", expected_listener_id);
 
 
-        let mut listen_addresses = 0;
-        while listen_addresses < 2 {
-            if let SwarmEvent::NewListenAddr {
-                listener_id,
-                address,
-            } = swarm.next().await.unwrap()
-            {
-                if listener_id == expected_listener_id {
-                    listen_addresses += 1;
-                }
-                tracing::info!("P2PServer ListenerId:{listener_id} Listening on {address} ");
-            }
-        }
+        // let mut listen_addresses = 0;
+        // while listen_addresses < 1 {
+        //     if let SwarmEvent::NewListenAddr {
+        //         listener_id,
+        //         address,
+        //     } = swarm.next().await.unwrap()
+        //     {
+        //         if listener_id == expected_listener_id {
+        //             listen_addresses += 1;
+        //         }
+        //         tracing::info!("P2PServer ListenerId:{listener_id} Listening on {address} ");
+        //     }
+        // }
 
         let relay_addr = match boot_nodes {
             Some(boot_nodes) => {
@@ -238,14 +237,6 @@ impl<E: EventHandler> Server<E> {
             }
             None => { None }
         };
-        match relay_addr {
-            Some(relay_addr) => {
-                tracing::info!("P2PServer relay_addr: {:?}", relay_addr);
-                let id = swarm.listen_on(relay_addr.with(Protocol::P2pCircuit))?;
-                tracing::info!("P2PServer listenerid for relay: {:?}", id);
-            }
-            None => {}
-        }
 
         match announce.clone() {
             Some(announce) => {
@@ -254,7 +245,14 @@ impl<E: EventHandler> Server<E> {
                 }
                 tracing::info!("External addresses: {:?}", announce)
             }
-            None => tracing::warn!("No external addresses configured")
+            None => match relay_addr {
+                Some(relay_addr) => {
+                    tracing::info!("P2PServer relay_addr: {:?}", relay_addr);
+                    let id = swarm.listen_on(relay_addr.with(Protocol::P2pCircuit))?;
+                    tracing::info!("P2PServer listenerid for relay: {:?}", id);
+                }
+                None => {}
+            }
         }
         let listen_addrs = swarm.listeners();
         for addr in listen_addrs {
@@ -281,7 +279,7 @@ impl<E: EventHandler> Server<E> {
 
         // Create a ticker to periodically discover new peers.
         let interval_secs = config.discovery_interval;
-        let instant = time::Instant::now() + Duration::from_secs(5);
+        let instant = time::Instant::now() + Duration::from_secs(15);
         let discovery_ticker = time::interval_at(instant, Duration::from_secs(interval_secs));
 
         Ok(Self {

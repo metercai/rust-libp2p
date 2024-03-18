@@ -16,6 +16,7 @@ pub(crate) struct Config {
 
 #[derive(Clone, Deserialize)]
 pub(crate) struct Address {
+    pub(crate) listen: Multiaddr,
     pub(crate) announce: Option<Multiaddr>,
     pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>
 }

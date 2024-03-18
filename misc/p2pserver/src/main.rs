@@ -29,7 +29,7 @@ struct Opts {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    env::set_var("RUST_LOG", "info");
+    // env::set_var("RUST_LOG", "info");
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
@@ -45,12 +45,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::task::spawn(server.run());
 
     // Periodically print the node status.
-    let client_clone = client.clone();
-    tokio::task::spawn(get_node_status(client_clone));
+    tokio::task::spawn(get_node_status(client.clone()));
 
     // Periodically send a request to one of the known peers.
-    let client_clone = client.clone();
-    tokio::task::spawn(request(client_clone));
+    //tokio::task::spawn(request(client.clone()));
 
     // Periodically make a broadcast to the network.
     broadcast(client);
@@ -80,7 +78,7 @@ impl EventHandler for Handler {
 }
 
 async fn get_node_status(client: Client) {
-    let dur = time::Duration::from_secs(27);
+    let dur = time::Duration::from_secs(25);
     loop {
         time::sleep(dur).await;
         let node_status = client.get_node_status().await;
@@ -91,7 +89,7 @@ async fn get_node_status(client: Client) {
 }
 
 fn broadcast(client: Client) {
-    let dur = Duration::from_secs(23);
+    let dur = Duration::from_secs(53);
     loop {
         thread::sleep(dur);
         let topic = "blocks";
