@@ -373,10 +373,14 @@ impl<E: EventHandler> Server<E> {
             }) => self.network_service.behaviour_mut().remove_peer(&peer),
 
             BehaviourEvent::Pubsub(gossipsub::Event::Message {
-                propagation_source: _,
-                message_id: _,
+                propagation_source: peer_id,
+                message_id: id,
                 message,
-            }) => self.handle_inbound_broadcast(message),
+            }) => {
+                tracing::info!("Got broadcast message with id({id}) from peer({peer_id}): '{}'",
+                        String::from_utf8_lossy(&message.data));
+                self.handle_inbound_broadcast(message)
+            },
 
             // See https://docs.rs/libp2p/latest/libp2p/kad/index.html#important-discrepancies
             BehaviourEvent::Identify(identify::Event::Received {
@@ -386,7 +390,7 @@ impl<E: EventHandler> Server<E> {
                     protocols,
                     .. },
             }) => {
-                if protocols.iter().any(|p| *p == kad::PROTOCOL_NAME) {
+                if protocols.iter().any(|p| *p == TOKEN_PROTO_NAME) {
                     self.add_addresses(&peer_id, listen_addrs);
                 }
             } //self.add_addresses(&peer_id, listen_addrs),

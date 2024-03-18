@@ -26,7 +26,7 @@ const BOOTNODES: [&str; 2] = [
     "12D3KooWCXCFdxdpBeXvzMgBGxyz9uD2GwYErsEsuTKxwaks7HCD",
 ];
 
-const TOKEN_PROTO_NAME: StreamProtocol = StreamProtocol::new("/token/kad/1.0.0");
+pub(crate) const TOKEN_PROTO_NAME: StreamProtocol = StreamProtocol::new("/token/kad/1.0.0");
 
 #[derive(NetworkBehaviour)]
 pub(crate) struct Behaviour {
@@ -117,7 +117,10 @@ impl Behaviour {
         };
 
         let gossipsub_config = gossipsub::ConfigBuilder::default()
-            .heartbeat_interval(Duration::from_secs(10))
+            .heartbeat_initial_delay(Duration::from_millis(500))
+            .heartbeat_interval(Duration::from_millis(5000))
+            .history_length(10)
+            .history_gossip(10)
             .validation_mode(gossipsub::ValidationMode::Strict)
             .message_id_fn(message_id_fn)
             .build()
