@@ -1,7 +1,7 @@
 use std::{
         cell::OnceCell,
         collections::HashMap,
-        fmt::Debug,
+        fmt::{self, Debug},
         error::Error,
         str::FromStr,
         io,
@@ -379,7 +379,7 @@ impl<E: EventHandler> Server<E> {
                 message_id: id,
                 message,
             }) => {
-                tracing::info!("Got broadcast message with id({id}) from peer({peer_id}): '{}'",
+                tracing::info!("<======= Got broadcast message with id({id}) from peer({peer_id}): '{}'",
                         String::from_utf8_lossy(&message.data));
                 self.handle_inbound_broadcast(message)
             },
@@ -548,4 +548,26 @@ pub(crate) struct NodeStatus {
     pub(crate) listened_addresses: Vec<Multiaddr>,
     pub(crate) known_peers_count: usize,
     pub(crate) known_peers: HashMap<PeerId, Vec<Multiaddr>>,
+}
+
+impl NodeStatus {
+    pub(crate) fn short_format(&self) -> String {
+        let short_id = (|| {
+            self.local_peer_id[self.local_peer_id.len() - 7..].to_string()
+        })();
+        let head= format!("NodeStatus({}), peers({})[", short_id, self.known_peers_count);
+        let peers = self.known_peers.iter()
+            .map(|(peer_id, multiaddrs)| {
+                let base58_peer_id = peer_id.to_base58();
+                let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
+                let ip_addrs = multiaddrs.iter()
+                    .map(|m| m.to_string().split('/').collect::<Vec<_>>()[2].to_string()).collect::<Vec<_>>()
+                    .join(",");
+                format!("({}-{})", short_peer_id, ip_addrs)
+            }).collect::<Vec<_>>().join(";");
+        let listeneds = self.listened_addresses.iter()
+            .map(|m| m.to_string().split('/').collect::<Vec<_>>()[2].to_string()).collect::<Vec<_>>()
+            .join(",");
+        format!("{}{}], listened({})({})", head, peers, self.listened_addresses.len(), listeneds)
+    }
 }

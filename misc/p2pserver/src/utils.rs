@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::env;
 use std::path::Path;
 use std::net::{IpAddr, Ipv4Addr};
-
+use libp2p::PeerId;
 use openssl::pkey::PKey;
 use openssl::symm::Cipher;
 use sysinfo::System;
@@ -66,6 +66,11 @@ pub(crate) fn get_local_ipaddr() -> Result<Vec<Ipv4Addr>, Box<dyn std::error::Er
     Ok(ipaddrs)
 }
 
+pub(crate) fn get_short_id(peer_id: PeerId) -> String {
+    let base58_peer_id = peer_id.to_base58();
+    let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
+    short_peer_id
+}
 
 /*pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 

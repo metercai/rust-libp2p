@@ -11,6 +11,9 @@ pub(crate) struct Config {
     pub(crate) pubsub_topics: Vec<String>,
     pub(crate) metrics_path: String,
     pub(crate) discovery_interval: u64,
+    pub(crate) broadcast_interval: u64,
+    pub(crate) node_status_interval: u64,
+    pub(crate) request_interval: u64,
     pub(crate) req_resp: ReqRespConfig
 }
 
@@ -41,11 +44,29 @@ impl Config {
         } else {
             30
         };
+        let broadcast_interval = if config.broadcast_interval > 0 {
+            config.broadcast_interval
+        } else {
+            60
+        };
+        let node_status_interval = if config.node_status_interval > 0 {
+            config.node_status_interval
+        } else {
+            35
+        };
+        let request_interval = if config.request_interval > 0 {
+            config.request_interval
+        } else {
+            70
+        };
         Ok(Self{
             address: config.address,
             pubsub_topics: config.pubsub_topics,
             metrics_path: config.metrics_path,
             discovery_interval,
+            broadcast_interval,
+            node_status_interval,
+            request_interval,
             req_resp: config.req_resp
         })
     }

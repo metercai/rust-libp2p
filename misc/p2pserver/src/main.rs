@@ -29,7 +29,7 @@ struct Opts {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    //env::set_var("RUST_LOG", "info");
+    env::set_var("RUST_LOG", "info");
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
@@ -38,24 +38,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let config = config::Config::from_file(opt.config.as_path())?;
 
-    let (client, mut server) = service::new(config).await?;
+    let (client, mut server) = service::new(config.clone()).await?;
     server.set_event_handler(Handler);
 
     // Run the p2p server
     tokio::task::spawn(server.run());
 
     // Periodically print the node status.
-    tokio::task::spawn(get_node_status(client.clone()));
+    tokio::task::spawn(get_node_status(client.clone(), config.node_status_interval));
 
     // Periodically send a request to one of the known peers.
-    tokio::task::spawn(request(client.clone()));
+    tokio::task::spawn(request(client.clone(), config.request_interval));
 
     // Periodically make a broadcast to the network.
-    //broadcast(client);
-    let dur = Duration::from_secs(53);
-    loop {
-        thread::sleep(dur);
-    }
+    broadcast(client.clone(), config.broadcast_interval);
     Ok(())
 }
 
@@ -81,24 +77,23 @@ impl EventHandler for Handler {
     }
 }
 
-async fn get_node_status(client: Client) {
-    let dur = time::Duration::from_secs(25);
+async fn get_node_status(client: Client, interval: u64) {
+    let dur = time::Duration::from_secs(interval);
     loop {
         time::sleep(dur).await;
         let node_status = client.get_node_status().await;
         let short_id = client.get_peer_id();
-        let now_time = Local::now().format("%H:%M:%S").to_string();
-        tracing::info!("📣 Node({}) status: {:?}", short_id, node_status);
+        tracing::info!("📣 {}", node_status.short_format());
     }
 }
 
-fn broadcast(client: Client) {
-    let dur = Duration::from_secs(53);
+fn broadcast(client: Client, interval: u64) {
+    let dur = Duration::from_secs(interval);
     loop {
         thread::sleep(dur);
         let topic = "blocks";
         let short_id = client.get_peer_id();
-        let now_time = Local::now().format("%H:%M:%S").to_string();
+        let now_time = Local::now().format("%H:%M:%S.%f").to_string();
         let message = format!("Hello, a new block from {} at {}!", short_id, now_time);
 
         tracing::info!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
@@ -106,25 +101,22 @@ fn broadcast(client: Client) {
     }
 }
 
-async fn request(client: Client) {
-    let dur = time::Duration::from_secs(35);
-    let mut i = 0;
+async fn request(client: Client, interval: u64) {
+    let dur = time::Duration::from_secs(interval);
     loop {
         time::sleep(dur).await;
         let known_peers = client.get_known_peers().await;
-        if known_peers.len() > 0 {
-            let target = &known_peers[i];
-            i += 1;
-            if i==known_peers.len() { i=0 }
-            let short_id = client.get_peer_id();
-            let now_time = Local::now().format("%H:%M:%S").to_string();
-            let request = format!("Hello {:?}, request from {} at {}!", target, short_id, now_time);
+        let short_id = client.get_peer_id();
+        for target in &known_peers {
+            let now_time = Local::now().format("%H:%M:%S.%4f").to_string();
+            let target_id = target.chars().skip(target.len() - 7).collect::<String>();
+            let request = format!("Hello {}, request from {} at {}!", target_id, short_id, now_time);
 
             tracing::info!("📣 >>>> Outbound request: {:?}", request);
             let response = client
                 .request(target, request.as_bytes().to_vec()).await
                 .unwrap();
-            let now_time2 = Local::now().format("%H:%M:%S").to_string();
+            let now_time2 = Local::now().format("%H:%M:%S.%4f").to_string();
             tracing::info!(
                 "📣 <<<< Inbound response: Time({}) {:?}", now_time2,
                 String::from_utf8_lossy(&response)
