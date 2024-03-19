@@ -159,12 +159,12 @@ impl<E: EventHandler> Server<E> {
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(utils::read_key_or_generate_key()?))?));
 
-        let announce = config.address.announce;
+        let public_ip = config.address.public_ip;
         let pubsub_topics: Vec<_> = config.pubsub_topics;
         let boot_nodes = config.address.boot_nodes;
         let req_resp_config = config.req_resp;
 
-        let mut swarm = match announce.clone() {
+        let mut swarm = match public_ip.clone() {
             None => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
@@ -181,7 +181,7 @@ impl<E: EventHandler> Server<E> {
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
                 .build(),
-            Some(_announce) => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
+            Some(_public_ip) => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
                     tcp::Config::default().port_reuse(true).nodelay(true),
@@ -238,12 +238,11 @@ impl<E: EventHandler> Server<E> {
             None => { None }
         };
 
-        match announce.clone() {
-            Some(announce) => {
-                for address in announce.clone().into_iter() {
-                    swarm.add_external_address(address.clone().into());
-                }
-                tracing::info!("External addresses: {:?}", announce)
+        match public_ip.clone() {
+            Some(public_ip) => {
+                let address: Multiaddr = format!("/ip4/{}/tcp/{}", public_ip, TOKEN_SERVER_PORT).parse().unwrap();
+                swarm.add_external_address(address.clone().into());
+                tracing::info!("External addresses: {:?}", address)
             }
             None => match relay_addr {
                 Some(relay_addr) => {

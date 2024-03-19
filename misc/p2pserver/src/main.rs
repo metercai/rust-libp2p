@@ -29,7 +29,7 @@ struct Opts {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // env::set_var("RUST_LOG", "info");
+    //env::set_var("RUST_LOG", "info");
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
@@ -48,10 +48,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::task::spawn(get_node_status(client.clone()));
 
     // Periodically send a request to one of the known peers.
-    //tokio::task::spawn(request(client.clone()));
+    tokio::task::spawn(request(client.clone()));
 
     // Periodically make a broadcast to the network.
-    broadcast(client);
+    //broadcast(client);
+    let dur = Duration::from_secs(53);
+    loop {
+        thread::sleep(dur);
+    }
     Ok(())
 }
 
@@ -104,14 +108,17 @@ fn broadcast(client: Client) {
 
 async fn request(client: Client) {
     let dur = time::Duration::from_secs(35);
+    let mut i = 0;
     loop {
         time::sleep(dur).await;
         let known_peers = client.get_known_peers().await;
         if known_peers.len() > 0 {
-            let target = &known_peers[0];
+            let target = &known_peers[i];
+            i += 1;
+            if i==known_peers.len() { i=0 }
             let short_id = client.get_peer_id();
             let now_time = Local::now().format("%H:%M:%S").to_string();
-            let request = format!("Hello, request from {} at {}!", short_id, now_time);
+            let request = format!("Hello {:?}, request from {} at {}!", target, short_id, now_time);
 
             tracing::info!("📣 >>>> Outbound request: {:?}", request);
             let response = client
