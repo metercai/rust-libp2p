@@ -45,13 +45,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::task::spawn(server.run());
 
     // Periodically print the node status.
-    tokio::task::spawn(get_node_status(client.clone(), config.node_status_interval));
+    tokio::task::spawn(get_node_status(client.clone(), config.get_node_status_interval()));
 
     // Periodically send a request to one of the known peers.
-    tokio::task::spawn(request(client.clone(), config.request_interval));
+    tokio::task::spawn(request(client.clone(), config.get_request_interval()));
 
     // Periodically make a broadcast to the network.
-    broadcast(client.clone(), config.broadcast_interval);
+    broadcast(client.clone(), config.get_broadcast_interval());
     Ok(())
 }
 

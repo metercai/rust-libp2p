@@ -35,7 +35,7 @@ pub(crate) struct Behaviour {
     ping: ping::Behaviour,
     identify: identify::Behaviour,
     pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    autonat: autonat::Behaviour,
+    pub(crate) autonat: autonat::Behaviour,
     mdns: Toggle<mdns::tokio::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
     pubsub: gossipsub::Behaviour,
@@ -48,6 +48,7 @@ impl Behaviour {
     pub(crate) fn new(
         local_key: identity::Keypair,
         relay_client: Option<relay::client::Behaviour>,
+        is_global: bool,
         pubsub_topics: Vec<String>,
         req_resp_config: Option<ReqRespConfig>,
     ) -> Self {
@@ -65,29 +66,50 @@ impl Behaviour {
             kademlia
         };
 
-        let enable_outer = match relay_client {
+        let is_relayserver = match relay_client {
             Some(ref _val) => false,
             None => true,
         };
-        let relay = if enable_outer {
+        let relay = if is_relayserver {
             Some(relay::Behaviour::new(PeerId::from(pub_key.clone()), Default::default()))
         } else {
             None
         }.into();
 
-        let mdns = if enable_outer {
+        let mdns = if is_relayserver {
             None
         } else {
             Some(mdns::tokio::Behaviour::new(
                 mdns::Config::default(), pub_key.clone().to_peer_id()).expect("Mdns service initialization failed！"))
         }.into();
 
-        let dcutr = if enable_outer {
+        let dcutr = if is_relayserver {
             None
         } else {
             Some(dcutr::Behaviour::new(pub_key.clone().to_peer_id()))
         }.into();
 
+        let autonat = if is_global {
+            autonat::Behaviour::new(
+                pub_key.clone().to_peer_id(),
+                autonat::Config {
+                    only_global_ips: false,
+                    ..Default::default()
+                }
+            )
+        } else {
+            autonat::Behaviour::new(
+                pub_key.clone().to_peer_id(),
+                autonat::Config {
+                    retry_interval: Duration::from_secs(10),
+                    refresh_interval: Duration::from_secs(30),
+                    boot_delay: Duration::from_secs(5),
+                    throttle_server_period: Duration::ZERO,
+                    only_global_ips: false,
+                    ..Default::default()
+                },
+            )
+        };
         Self {
             relay,
             relay_client: relay_client.into(),
@@ -98,9 +120,9 @@ impl Behaviour {
                 ),
             ),
             kademlia,
-            autonat: autonat::Behaviour::new(PeerId::from(pub_key.clone()), Default::default()),
-            mdns: mdns,
-            dcutr: dcutr,
+            autonat,
+            mdns,
+            dcutr,
             pubsub: Self::new_gossipsub(local_key, pubsub_topics),
             req_resp: Self::new_req_resp(req_resp_config),
         }

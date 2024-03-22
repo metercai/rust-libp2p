@@ -8,7 +8,9 @@ use openssl::pkey::PKey;
 use openssl::symm::Cipher;
 use sysinfo::System;
 use systemstat::{System as SystemStat, Platform, data};
-
+use std::net::{SocketAddr, TcpStream};
+use std::io::{Error, ErrorKind};
+use crate::error::P2pError;
 
 pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut sys = System::new_all();
@@ -41,7 +43,7 @@ pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::
     Ok(private_key)
 }
 
-pub(crate) fn get_local_ipaddr() -> Result<Vec<Ipv4Addr>, Box<dyn std::error::Error>> {
+pub(crate) fn get_ipaddr_from_netif() -> Result<Vec<Ipv4Addr>, Box<dyn std::error::Error>> {
     let sys_stat = SystemStat::new();
     let mut ipaddrs: Vec<Ipv4Addr> = Vec::new();
     match sys_stat.networks() {
@@ -51,9 +53,10 @@ pub(crate) fn get_local_ipaddr() -> Result<Vec<Ipv4Addr>, Box<dyn std::error::Er
                 for addr in addrs.iter() {
                     match addr.addr {
                         data::IpAddr::V4(ipv4) => {
-                            if ipv4.is_private() && !netif.name.starts_with("bridge") && !netif.name.starts_with("docker") {
+                            if (!ipv4.is_private() && !ipv4.is_loopback() && !ipv4.is_multicast())
+                                || (ipv4.is_private() && !netif.name.starts_with("bridge") && !netif.name.starts_with("docker")) {
                                 ipaddrs.push(ipv4);
-                                tracing::info!("Networks: {} ({:?})", netif.name, ipv4);
+                                tracing::info!("Networks {}: {}", netif.name, ipv4);
                             }
                         }
                         _ => {}
@@ -65,6 +68,28 @@ pub(crate) fn get_local_ipaddr() -> Result<Vec<Ipv4Addr>, Box<dyn std::error::Er
     };
     Ok(ipaddrs)
 }
+
+pub(crate) fn get_ipaddr_from_stream() -> Result<Ipv4Addr, Error> {
+    let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(114,114,114,114)), 53);
+    let stream = TcpStream::connect(socket_addr)?;
+    let local_addr = stream.local_addr()?;
+    let local_ip = local_addr.ip();
+    tracing::info!("TcpStream local_ip: {}", local_ip);
+    match local_ip {
+        IpAddr::V4(ipv4) => Ok(ipv4),
+        _ => Err(Error::new(ErrorKind::Other, "No IPv4 address found")),
+    }
+}
+
+pub(crate) async fn get_ipaddr_from_public() -> Result<Ipv4Addr, P2pError> {
+    let client = reqwest::Client::new();
+    let response = client.get("https://ipinfo.io/ip").send().await?;
+    let ip_str = response.text().await?;
+    let ip_addr = ip_str.parse::<Ipv4Addr>()?;
+    tracing::info!("Public_IP: {}", ip_addr);
+    Ok(ip_addr)
+}
+
 
 pub(crate) fn get_short_id(peer_id: PeerId) -> String {
     let base58_peer_id = peer_id.to_base58();

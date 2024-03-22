@@ -8,20 +8,20 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Clone, Deserialize)]
 pub(crate) struct Config {
     pub(crate) address: Address,
+    pub(crate) is_relay_server: Option<bool>,
     pub(crate) pubsub_topics: Vec<String>,
     pub(crate) metrics_path: String,
-    pub(crate) discovery_interval: u64,
-    pub(crate) broadcast_interval: u64,
-    pub(crate) node_status_interval: u64,
-    pub(crate) request_interval: u64,
+    pub(crate) discovery_interval: Option<u64>,
+    pub(crate) broadcast_interval: Option<u64>,
+    pub(crate) node_status_interval: Option<u64>,
+    pub(crate) request_interval: Option<u64>,
     pub(crate) req_resp: ReqRespConfig
 }
 
 #[derive(Clone, Deserialize)]
 pub(crate) struct Address {
-    pub(crate) listen: Multiaddr,
-    pub(crate) public_ip: Option<String>,
-    pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>
+    pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>,
+    pub(crate) relay_nodes: Option<PeerIdWithMultiaddr>
 }
 
 /// Configuration for the request-response protocol.
@@ -39,36 +39,33 @@ pub struct ReqRespConfig {
 impl Config {
     pub(crate) fn from_file(path: &Path) -> Result<Self, Box<dyn Error>> {
         let config: Self = toml::from_str(&std::fs::read_to_string(path)?).unwrap();
-        let discovery_interval = if config.discovery_interval > 0 {
-            config.discovery_interval
-        } else {
-            30
-        };
-        let broadcast_interval = if config.broadcast_interval > 0 {
-            config.broadcast_interval
-        } else {
-            60
-        };
-        let node_status_interval = if config.node_status_interval > 0 {
-            config.node_status_interval
-        } else {
-            35
-        };
-        let request_interval = if config.request_interval > 0 {
-            config.request_interval
-        } else {
-            70
-        };
+
         Ok(Self{
             address: config.address,
+            is_relay_server: config.is_relay_server,
             pubsub_topics: config.pubsub_topics,
             metrics_path: config.metrics_path,
-            discovery_interval,
-            broadcast_interval,
-            node_status_interval,
-            request_interval,
+            discovery_interval: config.discovery_interval,
+            broadcast_interval: config.broadcast_interval,
+            node_status_interval: config.node_status_interval,
+            request_interval: config.request_interval,
             req_resp: config.req_resp
         })
+    }
+    pub(crate) fn get_is_relay_server(&self) -> bool {
+        if let Some(v) = self.is_relay_server { v } else { false }
+    }
+    pub(crate) fn get_discovery_interval(&self) -> u64 {
+        if let Some(v) = self.discovery_interval { v } else { 30 }
+    }
+    pub(crate) fn get_broadcast_interval(&self) -> u64 {
+        if let Some(v) = self.broadcast_interval { v } else { 60 }
+    }
+    pub(crate) fn get_node_status_interval(&self) -> u64 {
+        if let Some(v) = self.node_status_interval { v } else { 35 }
+    }
+    pub(crate) fn get_request_interval(&self) -> u64 {
+        if let Some(v) = self.request_interval { v } else { 70 }
     }
 }
 

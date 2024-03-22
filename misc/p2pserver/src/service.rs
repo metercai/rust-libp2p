@@ -159,13 +159,32 @@ impl<E: EventHandler> Server<E> {
         let local_keypair  = Keypair::from(ed25519::Keypair::from(ed25519::SecretKey::
             try_from_bytes(Zeroizing::new(utils::read_key_or_generate_key()?))?));
 
-        let public_ip = config.address.public_ip;
-        let pubsub_topics: Vec<_> = config.pubsub_topics;
-        let boot_nodes = config.address.boot_nodes;
-        let req_resp_config = config.req_resp;
+        let is_relay_server = if let Some(v) = config.is_relay_server { v } else { false };
+        let pubsub_topics: Vec<_> = config.pubsub_topics.clone();
+        let req_resp_config = config.req_resp.clone();
 
-        let mut swarm = match public_ip.clone() {
-            None => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
+        let netifs_ip = utils::get_ipaddr_from_netif()?;
+        let locale_ip = utils::get_ipaddr_from_stream()?;
+        let public_ip = utils::get_ipaddr_from_public().await?;
+        let is_global = if locale_ip == public_ip { true } else { false };
+        let mut swarm = if is_global || is_relay_server {
+            libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
+                .with_tokio()
+                .with_tcp(
+                    tcp::Config::default().port_reuse(true).nodelay(true),
+                    noise::Config::new,
+                    yamux::Config::default,
+                )?
+                .with_quic()
+                .with_dns()?
+                .with_bandwidth_metrics(&mut metric_registry)
+                .with_behaviour(|key| {
+                    Behaviour::new(key.clone(), None, is_global, pubsub_topics.clone(), Some(req_resp_config.clone()))
+                })?
+                .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+                .build()
+        } else {
+            libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
                 .with_tokio()
                 .with_tcp(
                     tcp::Config::default().port_reuse(true).nodelay(true),
@@ -177,90 +196,77 @@ impl<E: EventHandler> Server<E> {
                 .with_relay_client(noise::Config::new, yamux::Config::default)?
                 .with_bandwidth_metrics(&mut metric_registry)
                 .with_behaviour(|key, relay_client| {
-                    Behaviour::new(key.clone(), Some(relay_client), pubsub_topics.clone(), Some(req_resp_config.clone()))
+                    Behaviour::new(key.clone(), Some(relay_client), is_global, pubsub_topics.clone(), Some(req_resp_config.clone()))
                 })?
                 .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
-                .build(),
-            Some(_public_ip) => libp2p::SwarmBuilder::with_existing_identity(local_keypair.clone())
-                .with_tokio()
-                .with_tcp(
-                    tcp::Config::default().port_reuse(true).nodelay(true),
-                    noise::Config::new,
-                    yamux::Config::default,
-                )?
-                .with_quic()
-                .with_dns()?
-                .with_bandwidth_metrics(&mut metric_registry)
-                .with_behaviour(|key| {
-                    Behaviour::new(key.clone(), None, pubsub_topics.clone(), Some(req_resp_config.clone()))
-                })?
-                .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
-                .build(),
+                .build()
         };
-        let ip_addrs = utils::get_local_ipaddr()?;
-        let ip_addr = if ip_addrs.is_empty() {
-            Ipv4Addr::UNSPECIFIED
-        } else {
-            ip_addrs[0]
+
+        match config.address.boot_nodes {
+            Some(ref boot_nodes) => {
+                let boot_nodes_clone = boot_nodes.clone();
+                for boot_node in boot_nodes.into_iter() {
+                    swarm.behaviour_mut().autonat.add_server(boot_node.peer_id(), Some(boot_node.address()));
+                };
+            }
+            None => {}
         };
-        let listen_ip: Multiaddr = config.address.listen;
-        tracing::info!("P2PServer listen_ip: {}", listen_ip);
+
+        let locale_port = if is_global || is_relay_server { TOKEN_SERVER_PORT } else { 0 };
         let expected_listener_id = swarm
-            .listen_on(listen_ip.clone().with(Protocol::Tcp(TOKEN_SERVER_PORT)))?;
-        //.listen_on(Multiaddr::empty().with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED)).with(Protocol::Tcp(TOKEN_SERVER_PORT)))?;
-        tracing::info!("P2PServer listening on listener ID: {}", expected_listener_id);
+            .listen_on(Multiaddr::empty().with(Protocol::Ip4(locale_ip)).with(Protocol::Tcp(locale_port)))?;
+
+        let mut listened_num = 0;
+        let mut listened_ip = String::new();
+        let mut listened_port = String::new();
+        while listened_num < 1 {
+            if let SwarmEvent::NewListenAddr {
+                listener_id,
+                address,
+            } = swarm.next().await.unwrap()
+            {
+                if listener_id == expected_listener_id {
+                    listened_num += 1;
+                }
+                let parts = address.iter().collect::<Vec<_>>();
+                listened_ip = parts[0].to_string().split('/').collect::<Vec<_>>()[2].to_string();
+                listened_port = parts[1].to_string().split('/').collect::<Vec<_>>()[2].to_string();
+                //tracing::info!("P2PServer ListenerId:{listener_id} Listening on {address} ");
+            }
+        }
+
+        let base58_peer_id = swarm.local_peer_id().to_base58();
+        let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
+        tracing::info!("P2PServer({}) start up : ip({}) port({}) listenerID({})", short_peer_id, listened_ip, listened_port, expected_listener_id);
 
 
-        // let mut listen_addresses = 0;
-        // while listen_addresses < 1 {
-        //     if let SwarmEvent::NewListenAddr {
-        //         listener_id,
-        //         address,
-        //     } = swarm.next().await.unwrap()
-        //     {
-        //         if listener_id == expected_listener_id {
-        //             listen_addresses += 1;
-        //         }
-        //         tracing::info!("P2PServer ListenerId:{listener_id} Listening on {address} ");
-        //     }
-        // }
+        if locale_ip.is_private() {
+            let address: Multiaddr = format!("/ip4/{}/tcp/{}", public_ip, listened_port).parse().unwrap();
+            swarm.add_external_address(address.clone().into());
+            tracing::info!("P2PServer({}) external addresses: {:?}", short_peer_id, address)
+        }
 
-        let relay_addr = match boot_nodes {
-            Some(boot_nodes) => {
+        match config.address.relay_nodes {
+            Some(ref relay_node) => {
+                let relay_addr = Multiaddr::from_str(format!("{}/p2p/{}", relay_node.address(), relay_node.peer_id()).as_str())?;
+                let id = swarm.listen_on(relay_addr.clone().with(Protocol::P2pCircuit))?;
+                tracing::info!("P2PServer({}) listenerID({}) for relay({})", short_peer_id, id, relay_addr);
+            }
+            None => {}
+        }
+
+        swarm.behaviour_mut().kademlia.set_mode(Some(kad::Mode::Server));
+
+        match config.address.boot_nodes {
+            Some(ref boot_nodes) => {
                 let boot_nodes_clone = boot_nodes.clone();
                 for boot_node in boot_nodes.into_iter() {
                     swarm.behaviour_mut().add_address(&boot_node.peer_id(), boot_node.address());
-                    tracing::info!("P2PServer boot_nodes: {boot_node}");
-                    // swarm.behaviour_mut().auto_nat.add_server(&boot_node.peer_id(), boot_node.address());
                 };
-                Some(Multiaddr::from_str(format!("{}/p2p/{}", boot_nodes_clone[0].address(), boot_nodes_clone[0].peer_id()).as_str())?)
             }
-            None => { None }
+            None => {}
         };
 
-        match public_ip.clone() {
-            Some(public_ip) => {
-                let address: Multiaddr = format!("/ip4/{}/tcp/{}", public_ip, TOKEN_SERVER_PORT).parse().unwrap();
-                swarm.add_external_address(address.clone().into());
-                tracing::info!("External addresses: {:?}", address)
-            }
-            None => match relay_addr {
-                Some(relay_addr) => {
-                    tracing::info!("P2PServer relay_addr: {:?}", relay_addr);
-                    let id = swarm.listen_on(relay_addr.with(Protocol::P2pCircuit))?;
-                    tracing::info!("P2PServer listenerid for relay: {:?}", id);
-                }
-                None => {}
-            }
-        }
-        let listen_addrs = swarm.listeners();
-        for addr in listen_addrs {
-            tracing::info!("P2PServer start up: {}/p2p/{}", addr, swarm.local_peer_id());
-        }
-        swarm
-            .behaviour_mut()
-            .kademlia
-            .set_mode(Some(kad::Mode::Server));
         swarm.behaviour_mut().discover_peers();
 
         let metrics = Metrics::new(&mut metric_registry);
@@ -270,17 +276,15 @@ impl<E: EventHandler> Server<E> {
             "A metric with a constant '1' value labeled by version",
             build_info,
         );
-
+        let metrics_path = config.metrics_path.clone();
         tokio::task::spawn(async move {
-            if let Err(e) = http_service::metrics_server(metric_registry, config.metrics_path).await {
+            if let Err(e) = http_service::metrics_server(metric_registry, locale_ip, metrics_path).await {
                 tracing::error!("Metrics server failed: {e}");
             }
         });
 
-
-
         // Create a ticker to periodically discover new peers.
-        let interval_secs = config.discovery_interval;
+        let interval_secs = config.get_discovery_interval();
         let instant = time::Instant::now() + Duration::from_secs(15);
         let discovery_ticker = time::interval_at(instant, Duration::from_secs(interval_secs));
 
@@ -563,7 +567,7 @@ impl NodeStatus {
                 let ip_addrs = multiaddrs.iter()
                     .map(|m| m.to_string().split('/').collect::<Vec<_>>()[2].to_string()).collect::<Vec<_>>()
                     .join(",");
-                format!("({}-{})", short_peer_id, ip_addrs)
+                format!("({}:{})", short_peer_id, ip_addrs)
             }).collect::<Vec<_>>().join(";");
         let listeneds = self.listened_addresses.iter()
             .map(|m| m.to_string().split('/').collect::<Vec<_>>()[2].to_string()).collect::<Vec<_>>()

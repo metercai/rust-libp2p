@@ -27,14 +27,16 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use std::net::Ipv4Addr;
 
 const METRICS_CONTENT_TYPE: &str = "application/openmetrics-text;charset=utf-8;version=1.0.0";
 pub(crate) async fn metrics_server(
     registry: Registry,
+    locale_ip: Ipv4Addr,
     metrics_path: String,
 ) -> Result<(), hyper::Error> {
     // Serve on localhost.
-    let addr = ([0, 0, 0, 0], 8888).into();
+    let addr = (locale_ip, 8888).into();
 
     let server = Server::bind(&addr).serve(MakeMetricService::new(registry, metrics_path.clone()));
     tracing::info!(metrics_server=%format!("http://{}{}", server.local_addr(), metrics_path));

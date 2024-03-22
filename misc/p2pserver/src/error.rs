@@ -2,7 +2,7 @@ use std::io;
 use std::fmt;
 use libp2p::{gossipsub, multiaddr, swarm, TransportError};
 use tokio::sync::oneshot;
-
+use std::net::AddrParseError;
 #[derive(thiserror::Error, Debug)]
 pub enum P2pError {
     #[error("Invalid secret key: {0}")]
@@ -25,6 +25,8 @@ pub enum P2pError {
     SubscribeError(#[from] gossipsub::SubscriptionError),
     #[error(transparent)]
     PublishError(#[from] gossipsub::PublishError),
+    #[error("Error in Reqwest")]
+    ReqwestError(#[from] reqwest::Error),
     #[error("Unknown error")]
     Unknown,
 }
@@ -35,3 +37,8 @@ impl From<()> for P2pError {
     }
 }
 
+impl From<AddrParseError> for P2pError {
+    fn from(_: AddrParseError) -> Self {
+        P2pError::Unknown
+    }
+}
