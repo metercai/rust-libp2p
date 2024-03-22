@@ -29,7 +29,7 @@ struct Opts {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    env::set_var("RUST_LOG", "info");
+    //env::set_var("RUST_LOG", "info");
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
