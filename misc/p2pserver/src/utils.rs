@@ -11,6 +11,8 @@ use systemstat::{System as SystemStat, Platform, data};
 use std::net::{SocketAddr, TcpStream};
 use std::io::{Error, ErrorKind};
 use crate::error::P2pError;
+use std::str::FromStr;
+
 
 pub(crate) fn read_key_or_generate_key() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut sys = System::new_all();
@@ -56,7 +58,7 @@ pub(crate) fn get_ipaddr_from_netif() -> Result<Vec<Ipv4Addr>, Box<dyn std::erro
                             if (!ipv4.is_private() && !ipv4.is_loopback() && !ipv4.is_multicast())
                                 || (ipv4.is_private() && !netif.name.starts_with("bridge") && !netif.name.starts_with("docker")) {
                                 ipaddrs.push(ipv4);
-                                tracing::info!("Networks {}: {}", netif.name, ipv4);
+                                tracing::info!("Network IFace({}) ip={}", netif.name, ipv4);
                             }
                         }
                         _ => {}
@@ -69,24 +71,29 @@ pub(crate) fn get_ipaddr_from_netif() -> Result<Vec<Ipv4Addr>, Box<dyn std::erro
     Ok(ipaddrs)
 }
 
-pub(crate) fn get_ipaddr_from_stream() -> Result<Ipv4Addr, Error> {
-    let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(114,114,114,114)), 53);
+pub(crate) fn get_ipaddr_from_stream(dns_ip: Option<String>) -> Result<Ipv4Addr, P2pError> {
+    let default_ip = Ipv4Addr::new(114,114,114,114);
+    let socket_addr = match dns_ip {
+        Some(dns_ip) => SocketAddr::new(IpAddr::V4(Ipv4Addr::from_str(&dns_ip).unwrap_or(default_ip)), 53),
+        None => SocketAddr::new(IpAddr::V4(default_ip), 53)
+    };
     let stream = TcpStream::connect(socket_addr)?;
     let local_addr = stream.local_addr()?;
     let local_ip = local_addr.ip();
-    tracing::info!("TcpStream local_ip: {}", local_ip);
+    tracing::info!("TcpStream({}) local_ip={}", socket_addr.to_string(), local_ip);
     match local_ip {
         IpAddr::V4(ipv4) => Ok(ipv4),
-        _ => Err(Error::new(ErrorKind::Other, "No IPv4 address found")),
+        _ => Err(P2pError::IoError(Error::new(ErrorKind::Other, "No IPv4 address found"))),
     }
 }
 
 pub(crate) async fn get_ipaddr_from_public() -> Result<Ipv4Addr, P2pError> {
+    let default_url = "https://ipinfo.io/ip";
     let client = reqwest::Client::new();
-    let response = client.get("https://ipinfo.io/ip").send().await?;
+    let response = client.get(default_url).send().await?;
     let ip_str = response.text().await?;
     let ip_addr = ip_str.parse::<Ipv4Addr>()?;
-    tracing::info!("Public_IP: {}", ip_addr);
+    tracing::info!("CURL({}) public_ip={}", default_url, ip_addr);
     Ok(ip_addr)
 }
 

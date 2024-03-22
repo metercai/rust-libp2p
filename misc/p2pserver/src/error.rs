@@ -27,6 +27,8 @@ pub enum P2pError {
     PublishError(#[from] gossipsub::PublishError),
     #[error("Error in Reqwest")]
     ReqwestError(#[from] reqwest::Error),
+    #[error("io Error ")]
+    IoError(#[from] io::Error),
     #[error("Unknown error")]
     Unknown,
 }

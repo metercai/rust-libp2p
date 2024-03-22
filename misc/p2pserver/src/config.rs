@@ -21,7 +21,8 @@ pub(crate) struct Config {
 #[derive(Clone, Deserialize)]
 pub(crate) struct Address {
     pub(crate) boot_nodes: Option<Vec<PeerIdWithMultiaddr>>,
-    pub(crate) relay_nodes: Option<PeerIdWithMultiaddr>
+    pub(crate) relay_nodes: Option<PeerIdWithMultiaddr>,
+    pub(crate) dns_ip: Option<String>,
 }
 
 /// Configuration for the request-response protocol.

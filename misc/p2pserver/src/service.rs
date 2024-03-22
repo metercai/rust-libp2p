@@ -164,7 +164,7 @@ impl<E: EventHandler> Server<E> {
         let req_resp_config = config.req_resp.clone();
 
         let netifs_ip = utils::get_ipaddr_from_netif()?;
-        let locale_ip = utils::get_ipaddr_from_stream()?;
+        let locale_ip = utils::get_ipaddr_from_stream(config.address.clone().dns_ip)?;
         let public_ip = utils::get_ipaddr_from_public().await?;
         let is_global = if locale_ip == public_ip { true } else { false };
         let mut swarm = if is_global || is_relay_server {
