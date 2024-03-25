@@ -7,6 +7,8 @@ use tracing_subscriber::EnvFilter;
 use std::env;
 use chrono::{Local, DateTime};
 use tokio::time;
+use openssl::rand::rand_bytes;
+
 mod protocol;
 mod http_service;
 mod error;
@@ -29,7 +31,7 @@ struct Opts {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    //env::set_var("RUST_LOG", "info");
+    //env::set_var("RUST_LOG", "p2pserver=info");
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .try_init();
@@ -91,7 +93,7 @@ fn broadcast(client: Client, interval: u64) {
     let dur = Duration::from_secs(interval);
     loop {
         thread::sleep(dur);
-        let topic = "blocks";
+        let topic = "system";
         let short_id = client.get_peer_id();
         let now_time = Local::now().format("%H:%M:%S.%f").to_string();
         let message = format!("Hello, a new block from {} at {}!", short_id, now_time);
@@ -107,21 +109,25 @@ async fn request(client: Client, interval: u64) {
         time::sleep(dur).await;
         let known_peers = client.get_known_peers().await;
         let short_id = client.get_peer_id();
-        for target in &known_peers {
+        let mut random_bytes = [0u8; 1];
+        rand_bytes(&mut random_bytes).unwrap();
+        if known_peers.len()>0 {
+            let random_index = random_bytes[0] as usize % known_peers.len();
+            let target = &known_peers[random_index];
             let now_time = Local::now().format("%H:%M:%S.%4f").to_string();
             let target_id = target.chars().skip(target.len() - 7).collect::<String>();
             let request = format!("Hello {}, request from {} at {}!", target_id, short_id, now_time);
-
             tracing::info!("📣 >>>> Outbound request: {:?}", request);
             let response = client
                 .request(target, request.as_bytes().to_vec()).await
                 .unwrap();
             let now_time2 = Local::now().format("%H:%M:%S.%4f").to_string();
             tracing::info!(
-                "📣 <<<< Inbound response: Time({}) {:?}", now_time2,
-                String::from_utf8_lossy(&response)
+            "📣 <<<< Inbound response: Time({}) {:?}", now_time2,
+            String::from_utf8_lossy(&response)
             );
         }
+
     }
 }
 

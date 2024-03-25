@@ -347,7 +347,6 @@ impl<E: EventHandler> Server<E> {
     fn handle_swarm_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         let behaviour_ev = match event {
             SwarmEvent::Behaviour(ev) => ev,
-
             SwarmEvent::NewListenAddr { address, .. } => {
                 tracing::info!(%address, "📣 P2P node listening on address");
                 return self.update_listened_addresses(); },
@@ -368,7 +367,7 @@ impl<E: EventHandler> Server<E> {
     }
 
     fn handle_behaviour_event(&mut self, ev: BehaviourEvent) {
-        tracing::info!("{:?}", ev);
+        tracing::debug!("{:?}", ev);
         // self.metrics.record(&ev);
         match ev {
             // The remote peer is unreachable, remove it from the DHT.
@@ -394,12 +393,16 @@ impl<E: EventHandler> Server<E> {
                 info: identify::Info {
                     listen_addrs,
                     protocols,
+                    observed_addr,
                     .. },
             }) => {
                 if protocols.iter().any(|p| *p == TOKEN_PROTO_NAME) {
                     self.add_addresses(&peer_id, listen_addrs);
-                }
-            } //self.add_addresses(&peer_id, listen_addrs),
+                };
+                self.network_service.add_external_address(observed_addr.clone());
+                tracing::info!("P2PServer({}) add_external_address({:?})", self.get_short_id(), observed_addr.clone());
+            }
+
             BehaviourEvent::ReqResp(request_response::Event::Message {
                 message:
                 request_response::Message::Request { request, channel, .. },
@@ -507,6 +510,12 @@ impl<E: EventHandler> Server<E> {
 
     fn get_peer_id(&self) -> PeerId {
         self.local_peer_id.clone()
+    }
+
+    fn get_short_id(&self) -> String {
+        let base58_peer_id = self.local_peer_id.to_base58();
+        let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
+        short_peer_id
     }
 
     fn update_listened_addresses(&mut self) {
