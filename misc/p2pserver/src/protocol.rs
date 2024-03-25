@@ -38,7 +38,7 @@ pub(crate) struct Behaviour {
     pub(crate) autonat: autonat::Behaviour,
     mdns: Toggle<mdns::tokio::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
-    pubsub: gossipsub::Behaviour,
+    pub(crate) pubsub: gossipsub::Behaviour,
     // `req_resp` is used for sending requests and responses.
     req_resp: request_response::Behaviour<req_resp::GenericCodec>,
 

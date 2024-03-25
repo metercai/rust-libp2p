@@ -13,7 +13,7 @@ use tokio::{
         time::{self, Interval},
         sync::mpsc::{self, UnboundedSender, UnboundedReceiver} };
 use libp2p::{
-        kad, tcp, identify, noise, yamux, ping,
+        kad, tcp, identify, noise, yamux, ping, mdns,
         core::multiaddr::Protocol,
         identity::{Keypair, ed25519},
         futures::{StreamExt, FutureExt},
@@ -240,11 +240,11 @@ impl<E: EventHandler> Server<E> {
         tracing::info!("P2PServer({}) start up : ip({}) port({}) listenerID({})", short_peer_id, listened_ip, listened_port, expected_listener_id);
 
 
-        if locale_ip.is_private() {
-            let address: Multiaddr = format!("/ip4/{}/tcp/{}", public_ip, listened_port).parse().unwrap();
-            swarm.add_external_address(address.clone().into());
-            tracing::info!("P2PServer({}) external addresses: {:?}", short_peer_id, address)
-        }
+        // if locale_ip.is_private() {
+        //     let address: Multiaddr = format!("/ip4/{}/tcp/{}", public_ip, listened_port).parse().unwrap();
+        //     swarm.add_external_address(address.clone().into());
+        //     tracing::info!("P2PServer({}) external addresses: {:?}", short_peer_id, address)
+        // }
 
         match config.address.relay_nodes {
             Some(ref relay_node) => {
@@ -359,7 +359,10 @@ impl<E: EventHandler> Server<E> {
             SwarmEvent::OutgoingConnectionError {
                 peer_id: Some(peer),
                 ..
-            } => return self.network_service.behaviour_mut().remove_peer(&peer),
+            } => {
+                tracing::info!("1, OutgoingConnectionError, remove_peer: {:?}", event);
+                return self.network_service.behaviour_mut().remove_peer(&peer)
+            },
 
             _ => return,
         };
@@ -375,8 +378,23 @@ impl<E: EventHandler> Server<E> {
                 peer,
                 result: Err(_),
                 ..
-            }) => self.network_service.behaviour_mut().remove_peer(&peer),
-
+            }) => {
+                tracing::info!("2, Ping Err, remove_peer: {:?}", ev);
+                self.network_service.behaviour_mut().remove_peer(&peer)
+            },
+            BehaviourEvent::Mdns(mdns::Event::Discovered(list)) => {
+                for (peer_id, multiaddr) in list {
+                    tracing::info!("mDNS discovered a new peer: {peer_id}");
+                    self.add_addresses(&peer_id, vec![multiaddr]);
+                    self.network_service.behaviour_mut().pubsub.add_explicit_peer(&peer_id);
+                }
+            }
+            BehaviourEvent::Mdns(mdns::Event::Expired(list)) => {
+                for (peer_id, _multiaddr) in list {
+                    tracing::info!("mDNS discover peer has expired: {peer_id}");
+                    self.network_service.behaviour_mut().pubsub.remove_explicit_peer(&peer_id);
+                }
+            }
             BehaviourEvent::Pubsub(gossipsub::Event::Message {
                 propagation_source: peer_id,
                 message_id: id,
