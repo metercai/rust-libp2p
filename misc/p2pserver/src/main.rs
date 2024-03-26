@@ -53,7 +53,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::task::spawn(request(client.clone(), config.get_request_interval()));
 
     // Periodically make a broadcast to the network.
-    broadcast(client.clone(), config.get_broadcast_interval());
+    tokio::task::spawn(broadcast(client.clone(), config.get_broadcast_interval()));
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
     Ok(())
 }
 
@@ -89,17 +92,16 @@ async fn get_node_status(client: Client, interval: u64) {
     }
 }
 
-fn broadcast(client: Client, interval: u64) {
-    let dur = Duration::from_secs(interval);
+async fn broadcast(client: Client, interval: u64) {
+    let dur = time::Duration::from_secs(interval);
     loop {
-        thread::sleep(dur);
-        let topic = "system";
+        time::sleep(dur).await;
+        let topic = "system".to_string();
         let short_id = client.get_peer_id();
-        let now_time = Local::now().format("%H:%M:%S.%f").to_string();
+        let now_time = Local::now();
         let message = format!("Hello, a new block from {} at {}!", short_id, now_time);
-
         tracing::info!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
-        let _ = client.broadcast(topic, message.as_bytes().to_vec());
+        let _ = client.broadcast(topic, message.as_bytes().to_vec()).await;
     }
 }
 
@@ -114,15 +116,15 @@ async fn request(client: Client, interval: u64) {
         if known_peers.len()>0 {
             let random_index = random_bytes[0] as usize % known_peers.len();
             let target = &known_peers[random_index];
-            let now: DateTime<Local> = Local::now();
-            let now_time = now.format("%H:%M:%S.%4f").to_string();
+            let now_time: DateTime<Local> = Local::now();
+            //let now_time = now.format("%H:%M:%S.%4f").to_string();
             let target_id = target.chars().skip(target.len() - 7).collect::<String>();
             let request = format!("Hello {}, request from {} at {}!", target_id, short_id, now_time);
             tracing::info!("📣 >>>> Outbound request: {:?}", request);
             let response = client
                 .request(target, request.as_bytes().to_vec()).await
                 .unwrap();
-            let now_time2 = Local::now().format("%H:%M:%S.%4f").to_string();
+            let now_time2: DateTime<Local> = Local::now();
             tracing::info!(
             "📣 <<<< Inbound response: Time({}) {:?}", now_time2,
             String::from_utf8_lossy(&response)

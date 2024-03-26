@@ -84,7 +84,7 @@ impl Client {
     }
 
     /// Publish a message to the given topic.
-    pub(crate) async fn broadcast(&self, topic: impl Into<String>, message: Vec<u8>) {
+    pub async fn broadcast(&self, topic: String, message: Vec<u8>) {
         let _ = self.cmd_sender.send(Command::Broadcast {
             topic: topic.into(),
             message,
