@@ -206,7 +206,7 @@ impl<E: EventHandler> Server<E> {
             Some(ref boot_nodes) => {
                 let boot_nodes_clone = boot_nodes.clone();
                 for boot_node in boot_nodes.into_iter() {
-                    swarm.behaviour_mut().autonat.add_server(boot_node.peer_id(), Some(boot_node.address()));
+                    //swarm.behaviour_mut().autonat.add_server(boot_node.peer_id(), Some(boot_node.address()));
                 };
             }
             None => {}
@@ -229,8 +229,10 @@ impl<E: EventHandler> Server<E> {
                     listened_num += 1;
                 }
                 let parts = address.iter().collect::<Vec<_>>();
-                listened_ip = parts[0].to_string().split('/').collect::<Vec<_>>()[2].to_string();
-                listened_port = parts[1].to_string().split('/').collect::<Vec<_>>()[2].to_string();
+                if let (Some(Protocol::Ip4(ip4)), Some(Protocol::Tcp(port))) = (parts.get(0), parts.get(1)) {
+                    listened_ip = ip4.to_string();
+                    listened_port = port.to_string();
+                }
                 //tracing::info!("P2PServer ListenerId:{listener_id} Listening on {address} ");
             }
         }
@@ -404,7 +406,9 @@ impl<E: EventHandler> Server<E> {
                         String::from_utf8_lossy(&message.data));
                 self.handle_inbound_broadcast(message)
             },
-
+            // BehaviourEvent::Identify(identify::Event::Sent { peer_id, .. }) => {
+            //     tracing::info!("Sent identify info: {:?}", ev)
+            // }
             // See https://docs.rs/libp2p/latest/libp2p/kad/index.html#important-discrepancies
             BehaviourEvent::Identify(identify::Event::Received {
                 peer_id,
@@ -510,9 +514,12 @@ impl<E: EventHandler> Server<E> {
 
     fn add_addresses(&mut self, peer_id: &PeerId, addresses: Vec<Multiaddr>) {
         for addr in addresses.into_iter() {
-            self.network_service
-                .behaviour_mut()
-                .add_address(peer_id, addr);
+            let parts = addr.iter().collect::<Vec<_>>();
+            if let Protocol::Ip4(ip4) = parts[0] {
+                if !ip4.is_private() {
+                    self.network_service.behaviour_mut().add_address(peer_id, addr);
+                }
+            }
         }
     }
 
@@ -592,13 +599,31 @@ impl NodeStatus {
                 let base58_peer_id = peer_id.to_base58();
                 let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
                 let ip_addrs = multiaddrs.iter()
-                    .map(|m| m.to_string().split('/').collect::<Vec<_>>()[2].to_string()).collect::<Vec<_>>()
+                    .filter_map(|addr| {
+                        let parts = addr.iter().collect::<Vec<_>>();
+                        if let (Some(Protocol::Ip4(ip4)), Some(Protocol::Tcp(port))) = (parts.get(0), parts.get(1)) {
+                            Some(format!("{}:{}", ip4, port))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
                     .join(",");
                 format!("({}:{})", short_peer_id, ip_addrs)
             }).collect::<Vec<_>>().join(";");
-        let listeneds = self.listened_addresses.iter()
-            .map(|m| m.to_string().split('/').collect::<Vec<_>>()[2].to_string()).collect::<Vec<_>>()
+        let listeneds: String = self.listened_addresses
+            .iter()
+            .filter_map(|addr| {
+                let parts = addr.iter().collect::<Vec<_>>();
+                if let (Some(Protocol::Ip4(ip4)), Some(Protocol::Tcp(port))) = (parts.get(0), parts.get(1)) {
+                    Some(format!("{}:{}", ip4, port))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
             .join(",");
+
         format!("{}{}], listened({})({})", head, peers, self.listened_addresses.len(), listeneds)
     }
 }

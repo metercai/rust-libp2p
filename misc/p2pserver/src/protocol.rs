@@ -35,7 +35,7 @@ pub(crate) struct Behaviour {
     ping: ping::Behaviour,
     identify: identify::Behaviour,
     pub(crate) kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    pub(crate) autonat: autonat::Behaviour,
+    pub(crate) autonat: Toggle<autonat::Behaviour>,
     mdns: Toggle<mdns::tokio::Behaviour>,
     dcutr: Toggle<dcutr::Behaviour>,
     pub(crate) pubsub: gossipsub::Behaviour,
@@ -90,26 +90,27 @@ impl Behaviour {
         }.into();
 
         let autonat = if is_global {
-            autonat::Behaviour::new(
+            Some(autonat::Behaviour::new(
                 pub_key.clone().to_peer_id(),
                 autonat::Config {
                     only_global_ips: false,
                     ..Default::default()
                 }
-            )
+            ))
         } else {
-            autonat::Behaviour::new(
-                pub_key.clone().to_peer_id(),
-                autonat::Config {
-                    retry_interval: Duration::from_secs(10),
-                    refresh_interval: Duration::from_secs(30),
-                    boot_delay: Duration::from_secs(5),
-                    throttle_server_period: Duration::ZERO,
-                    only_global_ips: false,
-                    ..Default::default()
-                },
-            )
-        };
+            // autonat::Behaviour::new(
+            //     pub_key.clone().to_peer_id(),
+            //     autonat::Config {
+            //         retry_interval: Duration::from_secs(10),
+            //         refresh_interval: Duration::from_secs(30),
+            //         boot_delay: Duration::from_secs(5),
+            //         throttle_server_period: Duration::ZERO,
+            //         only_global_ips: false,
+            //         ..Default::default()
+            //     },
+            // )
+            None
+        }.into();
         Self {
             relay,
             relay_client: relay_client.into(),
