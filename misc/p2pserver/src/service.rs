@@ -202,16 +202,6 @@ impl<E: EventHandler> Server<E> {
                 .build()
         };
 
-        match config.address.boot_nodes {
-            Some(ref boot_nodes) => {
-                let boot_nodes_clone = boot_nodes.clone();
-                for boot_node in boot_nodes.into_iter() {
-                    //swarm.behaviour_mut().autonat.add_server(boot_node.peer_id(), Some(boot_node.address()));
-                };
-            }
-            None => {}
-        };
-
         let locale_port = if is_global || is_relay_server { TOKEN_SERVER_PORT } else { 0 };
         let expected_listener_id = swarm
             .listen_on(Multiaddr::empty().with(Protocol::Ip4(locale_ip)).with(Protocol::Tcp(locale_port)))?;
@@ -233,20 +223,12 @@ impl<E: EventHandler> Server<E> {
                     listened_ip = ip4.to_string();
                     listened_port = port.to_string();
                 }
-                //tracing::info!("P2PServer ListenerId:{listener_id} Listening on {address} ");
             }
         }
 
         let base58_peer_id = swarm.local_peer_id().to_base58();
         let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
         tracing::info!("P2PServer({}) start up : ip({}) port({}) listenerID({})", short_peer_id, listened_ip, listened_port, expected_listener_id);
-
-
-        // if locale_ip.is_private() {
-        //     let address: Multiaddr = format!("/ip4/{}/tcp/{}", public_ip, listened_port).parse().unwrap();
-        //     swarm.add_external_address(address.clone().into());
-        //     tracing::info!("P2PServer({}) external addresses: {:?}", short_peer_id, address)
-        // }
 
         match config.address.relay_nodes {
             Some(ref relay_node) => {
