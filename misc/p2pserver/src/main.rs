@@ -67,7 +67,7 @@ struct Handler;
 impl EventHandler for Handler {
     fn handle_inbound_request(&self, request: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>> {
         tracing::info!(
-            "📣 <<<< Inbound request: {:?}",
+            "📣 <<<< Inbound REQUEST: {:?}",
             String::from_utf8_lossy(request.as_slice())
         );
         Ok(request)
@@ -75,7 +75,7 @@ impl EventHandler for Handler {
 
     fn handle_broadcast(&self, topic: &str, message: Vec<u8>) {
         tracing::info!(
-            "📣 <<<< Inbound broadcast: {:?} {:?}",
+            "📣 <<<< Inbound BROADCAST: {:?} {:?}",
             topic,
             String::from_utf8_lossy(message.as_slice())
         );
@@ -99,7 +99,7 @@ async fn broadcast(client: Client, interval: u64) {
         let topic = "system".to_string();
         let short_id = client.get_peer_id();
         let now_time = Local::now();
-        let message = format!("Hello, a new block from {} at {}!", short_id, now_time);
+        let message = format!("From {} at {}!", short_id, now_time);
         tracing::info!("📣 >>>> Outbound broadcast: {:?} {:?}", topic, message);
         let _ = client.broadcast(topic, message.as_bytes().to_vec()).await;
     }

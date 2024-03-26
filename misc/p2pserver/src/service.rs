@@ -384,7 +384,7 @@ impl<E: EventHandler> Server<E> {
                 message_id: id,
                 message,
             }) => {
-                tracing::info!("<======= Got broadcast message with id({id}) from peer({peer_id}): '{}'",
+                tracing::info!("<<==== Got broadcast message with id({id}) from peer({peer_id}): '{}'",
                         String::from_utf8_lossy(&message.data));
                 self.handle_inbound_broadcast(message)
             },
@@ -507,11 +507,13 @@ impl<E: EventHandler> Server<E> {
 
     fn get_status(&mut self) -> NodeStatus {
         let known_peers = self.network_service.behaviour_mut().known_peers();
+        let pubsub_peers = self.network_service.behaviour_mut().pubsub_peers();
         NodeStatus {
             local_peer_id: self.local_peer_id.to_base58(),
             listened_addresses: self.listened_addresses.clone(),
             known_peers_count: known_peers.len(),
             known_peers,
+            pubsub_peers,
         }
     }
 
@@ -568,6 +570,7 @@ pub(crate) struct NodeStatus {
     pub(crate) listened_addresses: Vec<Multiaddr>,
     pub(crate) known_peers_count: usize,
     pub(crate) known_peers: HashMap<PeerId, Vec<Multiaddr>>,
+    pub(crate) pubsub_peers: HashMap<PeerId, Vec<TopicHash>>,
 }
 
 impl NodeStatus {
@@ -605,7 +608,16 @@ impl NodeStatus {
             })
             .collect::<Vec<_>>()
             .join(",");
+        let pubsubs = self.pubsub_peers.iter()
+            .map(|(peer_id, topichashs)| {
+                let base58_peer_id = peer_id.to_base58();
+                let short_peer_id = base58_peer_id.chars().skip(base58_peer_id.len() - 7).collect::<String>();
+                let topics = (*topichashs).iter().map(|topic| topic.to_string()).collect::<Vec<_>>().join(", ");
 
-        format!("{}{}], listened({})({})", head, peers, self.listened_addresses.len(), listeneds)
+                format!("({}:{})", short_peer_id, topics)
+            }).collect::<Vec<_>>().join(";");
+        format!("{}{}], listened({})({}), pubsubs({})({})", head, peers,
+                self.listened_addresses.len(), listeneds,
+                self.pubsub_peers.len(), pubsubs)
     }
 }

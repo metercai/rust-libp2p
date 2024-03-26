@@ -5,7 +5,7 @@ use libp2p::ping;
 use libp2p::relay;
 use libp2p::multiaddr::Protocol;
 use libp2p::request_response::{self, OutboundRequestId, ResponseChannel, ProtocolSupport};
-use libp2p::gossipsub::{self, IdentTopic};
+use libp2p::gossipsub::{self, IdentTopic, TopicHash};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, StreamProtocol};
 use libp2p::{identity, Multiaddr, PeerId};
@@ -181,6 +181,18 @@ impl Behaviour {
         }
         peers
     }
+
+    pub(crate) fn pubsub_peers(&mut self) -> HashMap<PeerId, Vec<TopicHash>> {
+        let mut peers = HashMap::new();
+        let mut peers_iter = self.pubsub.all_peers();
+        while let Some((peer_id, topics)) = peers_iter.next() {
+            let cloned_peer_id = (*peer_id).clone();
+            let cloned_topics: Vec<TopicHash> = topics.iter().map(|topic| (*topic).clone()).collect();
+            peers.insert(cloned_peer_id, cloned_topics);
+        }
+        peers
+    }
+
     pub(crate) fn broadcast(&mut self, topic: String, message: Vec<u8>) -> Result<(), Box<dyn Error>> {
         let topic = gossipsub::IdentTopic::new(topic);
         self.pubsub.publish(topic.clone(), message)?;
